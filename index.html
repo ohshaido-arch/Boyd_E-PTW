@@ -153,6 +153,7 @@
     // =========================================================================
     const SUPABASE_URL = 'https://lpayrvxuazkvjboumoas.supabase.co';
     const SUPABASE_ANON_KEY = 'sb_publishable_4prbv8bklJMq_Pa_BLAgqg__Ob-aTSr';
+
     const isSupabaseConfigured = Boolean(
       window.supabase &&
       SUPABASE_URL &&
@@ -204,27 +205,51 @@
       { code: 'LOTO', name: 'Giấy phép ngắt nguồn năng lượng (LOTO)', icon: 'fa-lock', color: 'red', dateRule: 'MULTI_DAY', ruleLabel: 'Chọn nhiều ngày (đăng ký trước 1 ngày)' }
     ];
 
+    // Danh mục PPE chuẩn, gọn gàng, không trùng lặp
     const STANDARD_PPE_OPTIONS = [
-      'Mũ bảo hộ công nghiệp (Hard Hat)',
-      'Giày bảo hộ mũi thép (Safety Shoes)',
-      'Kính bảo hộ chống bụi/văng bắn',
-      'Áo phản quang nhận diện nhà thầu',
-      'Găng tay bảo hộ chống cắt / cơ khí',
+      'Mũ bảo hộ',
+      'Giày bảo hộ',
+      'Kính bảo hộ',
+      'Áo phản quang',
+      'Găng tay bảo hộ',
       'Nút tai / Chụp tai chống ồn',
-      'Khẩu trang lọc bụi / Mặt nạ phòng độc',
-      'Dây đai an toàn toàn thân 2 móc (Full Body Harness)',
+      'Khẩu trang lọc bụi',
+      'Mặt nạ phòng độc',
+      'Dây đai an toàn toàn thân 2 móc',
       'Mặt nạ hàn & Găng tay da chịu nhiệt',
-      'Găng tay & Thảm cách điện đạt chuẩn kiểm định'
+      'Găng tay & Thảm cách điện',
+      'Bình dưỡng khí',
+      'Thiết bị đo nồng độ khí',
+      'LOTO ngắt khóa nguồn điện'
     ];
+
+    // Tự động gộp các tên PPE dài phiên bản cũ về tên gọn chuẩn để không bao giờ bị double
+    const PPE_ALIAS_MAP = {
+      'mũ bảo hộ công nghiệp (hard hat)': 'Mũ bảo hộ',
+      'giày bảo hộ mũi thép (safety shoes)': 'Giày bảo hộ',
+      'kính bảo hộ chống bụi/văng bắn': 'Kính bảo hộ',
+      'áo phản quang nhận diện nhà thầu': 'Áo phản quang',
+      'găng tay bảo hộ chống cắt / cơ khí': 'Găng tay bảo hộ',
+      'dây đai an toàn toàn thân 2 móc (full body harness)': 'Dây đai an toàn toàn thân 2 móc',
+      'găng tay & thảm cách điện đạt chuẩn kiểm định': 'Găng tay & Thảm cách điện',
+      'khẩu trang lọc bụi / mặt nạ phòng độc': 'Khẩu trang lọc bụi'
+    };
+
+    function canonicalizePpeName(name) {
+      const clean = String(name || '').trim().replace(/\s+/g, ' ');
+      if (!clean || clean === 'Yêu cầu PPE mới...') return '';
+      const mapped = PPE_ALIAS_MAP[clean.toLowerCase()];
+      return mapped || clean;
+    }
 
     function createDefaultSafetyTemplates() {
       return {
         GENERAL: {
           ppe: [
-            'Mũ bảo hộ công nghiệp (Hard Hat)',
-            'Giày bảo hộ mũi thép (Safety Shoes)',
-            'Kính bảo hộ chống bụi/văng bắn',
-            'Áo phản quang nhận diện nhà thầu'
+            'Mũ bảo hộ',
+            'Giày bảo hộ',
+            'Kính bảo hộ',
+            'Áo phản quang'
           ],
           safety: [
             'Công nhân đã được huấn luyện an toàn đầu vào của BOYD và mang đầy đủ PPE tiêu chuẩn.',
@@ -240,11 +265,11 @@
         },
         HOT_WORK: {
           ppe: [
-            'Mũ bảo hộ công nghiệp (Hard Hat)',
-            'Giày bảo hộ mũi thép (Safety Shoes)',
+            'Mũ bảo hộ',
+            'Giày bảo hộ',
             'Mặt nạ hàn & Găng tay da chịu nhiệt',
-            'Áo phản quang nhận diện nhà thầu',
-            'Khẩu trang lọc bụi / Mặt nạ phòng độc'
+            'Áo phản quang',
+            'Khẩu trang lọc bụi'
           ],
           safety: [
             'Di dời toàn bộ vật liệu dễ cháy trong bán kính tối thiểu 11 mét xung quanh khu vực hàn cắt.',
@@ -261,11 +286,11 @@
         },
         HEIGHT: {
           ppe: [
-            'Mũ bảo hộ công nghiệp (Hard Hat)',
-            'Giày bảo hộ mũi thép (Safety Shoes)',
-            'Dây đai an toàn toàn thân 2 móc (Full Body Harness)',
-            'Áo phản quang nhận diện nhà thầu',
-            'Găng tay bảo hộ chống cắt / cơ khí'
+            'Mũ bảo hộ',
+            'Giày bảo hộ',
+            'Dây đai an toàn toàn thân 2 móc',
+            'Áo phản quang',
+            'Găng tay bảo hộ'
           ],
           safety: [
             'Áp dụng cho mọi công việc ở độ cao từ 2.0 mét trở lên; công nhân có đủ sức khỏe, không sợ độ cao.',
@@ -281,11 +306,12 @@
         },
         CONFINED: {
           ppe: [
-            'Mũ bảo hộ công nghiệp (Hard Hat)',
-            'Giày bảo hộ mũi thép (Safety Shoes)',
-            'Khẩu trang lọc bụi / Mặt nạ phòng độc',
-            'Dây đai an toàn toàn thân 2 móc (Full Body Harness)',
-            'Áo phản quang nhận diện nhà thầu'
+            'Mũ bảo hộ',
+            'Giày bảo hộ',
+            'Mặt nạ phòng độc',
+            'Dây đai an toàn toàn thân 2 móc',
+            'Thiết bị đo nồng độ khí',
+            'Áo phản quang'
           ],
           safety: [
             'Đo kiểm nồng độ khí trước khi vào và định kỳ: O2 (19.5% - 23.5%), LEL < 10%, CO < 25ppm, H2S < 10ppm.',
@@ -302,11 +328,12 @@
         },
         ELECTRICAL: {
           ppe: [
-            'Mũ bảo hộ công nghiệp (Hard Hat)',
-            'Giày bảo hộ mũi thép (Safety Shoes)',
-            'Găng tay & Thảm cách điện đạt chuẩn kiểm định',
-            'Kính bảo hộ chống bụi/văng bắn',
-            'Áo phản quang nhận diện nhà thầu'
+            'Mũ bảo hộ',
+            'Giày bảo hộ',
+            'Găng tay & Thảm cách điện',
+            'Kính bảo hộ',
+            'LOTO ngắt khóa nguồn điện',
+            'Áo phản quang'
           ],
           safety: [
             'Chỉ kỹ thuật viên có chứng chỉ an toàn điện phù hợp mới được thực hiện đấu nối.',
@@ -322,10 +349,10 @@
         },
         LIFTING: {
           ppe: [
-            'Mũ bảo hộ công nghiệp (Hard Hat)',
-            'Giày bảo hộ mũi thép (Safety Shoes)',
-            'Áo phản quang nhận diện nhà thầu',
-            'Găng tay bảo hộ chống cắt / cơ khí'
+            'Mũ bảo hộ',
+            'Giày bảo hộ',
+            'Áo phản quang',
+            'Găng tay bảo hộ'
           ],
           safety: [
             'Thiết bị nâng (xe cẩu, pa-lăng, xe nâng) và phụ kiện (cáp, xích, ma-ní) còn hạn kiểm định và không hư hại.',
@@ -341,11 +368,12 @@
         },
         LOTO: {
           ppe: [
-            'Mũ bảo hộ công nghiệp (Hard Hat)',
-            'Giày bảo hộ mũi thép (Safety Shoes)',
-            'Găng tay & Thảm cách điện đạt chuẩn kiểm định',
-            'Kính bảo hộ chống bụi/văng bắn',
-            'Áo phản quang nhận diện nhà thầu'
+            'Mũ bảo hộ',
+            'Giày bảo hộ',
+            'Găng tay & Thảm cách điện',
+            'Kính bảo hộ',
+            'LOTO ngắt khóa nguồn điện',
+            'Áo phản quang'
           ],
           safety: [
             'Nhận diện đầy đủ mọi nguồn năng lượng (Điện, Khí nén, Thủy lực, Nhiệt, Hóa chất, Thế năng).',
@@ -413,6 +441,21 @@
       return PERMIT_TYPES.find(t => t.code === code) || PERMIT_TYPES[0];
     }
 
+    function dedupeStringList(arr) {
+      const seen = new Set();
+      const result = [];
+      (arr || []).forEach(item => {
+        const clean = canonicalizePpeName(item);
+        if (!clean) return;
+        const key = clean.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          result.push(clean);
+        }
+      });
+      return result;
+    }
+
     function statusBadgeHTML(status) {
       const map = {
         PENDING_MANAGER: '<span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">Chờ Quản lý duyệt</span>',
@@ -433,6 +476,7 @@
         managers: [],
         contractors: [],
         zones: { B1: [], B2: [], B3: [], B4: [] },
+        ppeCatalog: [...STANDARD_PPE_OPTIONS],
         safetyTemplates: createDefaultSafetyTemplates(),
         permits: [],
         deletedPermits: []
@@ -455,6 +499,11 @@
           if (z.floor === 'Tầng 3') z.floor = 'Outside';
         });
       });
+
+      const baseCatalog = Array.isArray(parsed.ppeCatalog) && parsed.ppeCatalog.length > 0
+        ? [...parsed.ppeCatalog]
+        : [...STANDARD_PPE_OPTIONS];
+
       if (!parsed.safetyTemplates || typeof parsed.safetyTemplates !== 'object') parsed.safetyTemplates = seed.safetyTemplates;
       PERMIT_TYPES.forEach(pt => {
         if (!parsed.safetyTemplates[pt.code]) {
@@ -462,7 +511,11 @@
         } else if (!Array.isArray(parsed.safetyTemplates[pt.code].ppe)) {
           parsed.safetyTemplates[pt.code].ppe = [...defaultTpls[pt.code].ppe];
         }
+        parsed.safetyTemplates[pt.code].ppe = dedupeStringList(parsed.safetyTemplates[pt.code].ppe);
+        baseCatalog.push(...parsed.safetyTemplates[pt.code].ppe);
       });
+      parsed.ppeCatalog = dedupeStringList(baseCatalog);
+
       if (!Array.isArray(parsed.permits)) parsed.permits = [];
       parsed.permits.forEach(p => {
         if (!p.floor) p.floor = 'Tầng 1';
@@ -470,6 +523,8 @@
         if (!Array.isArray(p.ppe)) {
           const tpl = parsed.safetyTemplates[p.permitType] || defaultTpls.GENERAL;
           p.ppe = p.archived ? [] : [...(tpl.ppe || [])];
+        } else {
+          p.ppe = dedupeStringList(p.ppe);
         }
       });
       if (!Array.isArray(parsed.deletedPermits)) parsed.deletedPermits = [];
@@ -528,23 +583,36 @@
 
           const base = createEmptyData();
           const existingKeys = new Set();
+          let rawCatalogJson = '';
+          let rawTemplatesJson = '';
           (settingsRes.data || []).forEach(row => {
             existingKeys.add(row.key);
             base[row.key] = row.value;
+            if (row.key === 'ppeCatalog') rawCatalogJson = JSON.stringify(row.value);
+            if (row.key === 'safetyTemplates') rawTemplatesJson = JSON.stringify(row.value);
           });
 
           base.permits = (permitsRes.data || []).map(r => r.data);
           base.deletedPermits = (deletedRes.data || []).map(r => r.data);
           db = normalizeDbObject(base);
 
-          // Khởi tạo các khóa cấu hình mặc định lên Supabase trong lần chạy đầu tiên
-          const requiredKeys = ['ehsAccount', 'managers', 'contractors', 'zones', 'safetyTemplates'];
-          const missingRows = requiredKeys
-            .filter(k => !existingKeys.has(k))
-            .map(k => ({ key: k, value: db[k], updated_at: new Date().toISOString() }));
+          // Tự động khởi tạo hoặc cập nhật lên Supabase nếu danh mục PPE vừa được dọn trùng
+          const requiredKeys = ['ehsAccount', 'managers', 'contractors', 'zones', 'ppeCatalog', 'safetyTemplates'];
+          const rowsToSync = [];
+          requiredKeys.forEach(k => {
+            if (!existingKeys.has(k)) {
+              rowsToSync.push({ key: k, value: db[k], updated_at: new Date().toISOString() });
+            }
+          });
+          if (existingKeys.has('ppeCatalog') && rawCatalogJson !== JSON.stringify(db.ppeCatalog)) {
+            rowsToSync.push({ key: 'ppeCatalog', value: db.ppeCatalog, updated_at: new Date().toISOString() });
+          }
+          if (existingKeys.has('safetyTemplates') && rawTemplatesJson !== JSON.stringify(db.safetyTemplates)) {
+            rowsToSync.push({ key: 'safetyTemplates', value: db.safetyTemplates, updated_at: new Date().toISOString() });
+          }
 
-          if (missingRows.length > 0) {
-            await supabaseClient.from('eptw_settings').upsert(missingRows, { onConflict: 'key' });
+          if (rowsToSync.length > 0) {
+            await supabaseClient.from('eptw_settings').upsert(rowsToSync, { onConflict: 'key' });
           }
 
           this.cloudOnline = true;
@@ -717,7 +785,7 @@
 
     function applySafetyTemplateToWizard(permitTypeCode) {
       const tpl = db.safetyTemplates[permitTypeCode] || createDefaultSafetyTemplates().GENERAL;
-      state.wizard.ppe = [...(tpl.ppe || [])];
+      state.wizard.ppe = dedupeStringList(tpl.ppe || []);
       state.wizard.safetyRequirements = [...(tpl.safety || [])];
       state.wizard.jsa = (tpl.jsa || []).map(item => ({ ...item }));
     }
@@ -972,13 +1040,13 @@
               </div>
               <div>
                 <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-[11px] font-extrabold text-eaton uppercase tracking-wider mb-1.5">
-                  <i class="fa-solid fa-shield-halved"></i> Permit To Work System
+                  <i class="fa-solid fa-shield-halved"></i> E-EHS Platform
                 </div>
                 <h1 class="text-xl sm:text-2xl font-black text-navy tracking-tight">
                   HỆ THỐNG ĐĂNG KÝ GIẤY PHÉP LÀM VIỆC (E-PTW)
                 </h1>
                 <p class="text-xs sm:text-sm text-slate-500 mt-1">
-                  Kiểm soát an toàn nhà thầu, đánh giá rủi ro JSA, yêu cầu PPE và phê duyệt trực tuyến tại nhà máy B1–B4.
+                  Hệ thống đăng ký giấy phép làm việc an toàn - Design by Adward Do
                 </p>
               </div>
             </div>
@@ -1080,7 +1148,7 @@
                 </div>
                 <h3 class="text-lg font-extrabold text-navy group-hover:text-emerald-600 transition">Bộ phận EHS</h3>
                 <p class="text-xs sm:text-sm text-slate-500 mt-1.5 leading-relaxed">
-                  Kiểm tra & Phê duyệt giấy phép, thiết lập an toàn/PPE
+                  Kiểm tra &amp; Phê duyệt giấy phép, thiết lập an toàn/PPE
                 </p>
               </div>
               <div class="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-extrabold text-emerald-600">
@@ -1388,7 +1456,11 @@
         w.department = state.currentManager.department;
       }
 
-      const allPpeList = Array.from(new Set([...STANDARD_PPE_OPTIONS, ...(w.ppe || [])]));
+      const mandatoryPpe = dedupeStringList((db.safetyTemplates[w.permitType] || {}).ppe || []);
+      const mandatorySet = new Set(mandatoryPpe.map(x => x.toLowerCase()));
+      w.ppe = dedupeStringList(w.ppe || []);
+      const checkedSet = new Set(w.ppe.map(x => x.toLowerCase()));
+      const allPpeList = dedupeStringList([...(db.ppeCatalog || STANDARD_PPE_OPTIONS), ...mandatoryPpe, ...w.ppe]);
 
       return `
         <div class="space-y-6">
@@ -1433,23 +1505,30 @@
           </div>
 
           <div class="p-4 rounded-2xl bg-indigo-50/60 border border-indigo-200 space-y-3">
-            <div class="text-xs font-extrabold text-indigo-900 uppercase tracking-wide flex items-center gap-1.5">
-              <i class="fa-solid fa-vest-patches text-indigo-600"></i> Yêu cầu Trang bị Bảo hộ Cá nhân (PPE) bắt buộc
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="text-xs font-extrabold text-indigo-900 uppercase tracking-wide flex items-center gap-1.5">
+                <i class="fa-solid fa-vest-patches text-indigo-600"></i> Yêu cầu Trang bị Bảo hộ Cá nhân (PPE) bắt buộc
+              </div>
+              <span class="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+                Đã chọn ${w.ppe.length} / ${allPpeList.length} PPE
+              </span>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               ${allPpeList.map(item => {
-                const checked = (w.ppe || []).includes(item);
+                const checked = checkedSet.has(item.toLowerCase());
+                const isMandatory = mandatorySet.has(item.toLowerCase());
                 return `
                   <label class="flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition ${checked ? 'bg-white border-indigo-400 shadow-sm' : 'bg-white/60 border-slate-200 hover:bg-white'}">
-                    <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleWizardPpe('${escapeHtml(item).replace(/'/g, "\\'")}', this.checked)" class="w-4 h-4 accent-indigo-600 rounded" />
-                    <span class="text-xs font-semibold text-slate-700">${escapeHtml(item)}</span>
+                    <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleWizardPpe('${escapeHtml(item).replace(/'/g, "\\'")}', this.checked)" class="w-4 h-4 accent-indigo-600 rounded shrink-0" />
+                    <span class="text-xs font-semibold text-slate-700 flex-1">${escapeHtml(item)}</span>
+                    ${isMandatory ? '<span class="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-extrabold shrink-0">Bắt buộc</span>' : ''}
                   </label>
                 `;
               }).join('')}
             </div>
             <div class="flex gap-2 pt-1">
-              <input type="text" id="wiz-custom-ppe" placeholder="Thêm yêu cầu PPE đặc thù khác..." class="flex-1 px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs outline-none focus:border-indigo-500" />
-              <button onclick="addWizardCustomPpe()" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold">+ Thêm PPE</button>
+              <input type="text" id="wiz-custom-ppe" onkeydown="if(event.key==='Enter'){ event.preventDefault(); addWizardCustomPpe(); }" placeholder="Thêm yêu cầu PPE đặc thù khác..." class="flex-1 px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs outline-none focus:border-indigo-500" />
+              <button type="button" onclick="addWizardCustomPpe()" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold">+ Thêm PPE</button>
             </div>
           </div>
 
@@ -1530,18 +1609,29 @@
 
     function toggleWizardPpe(label, checked) {
       if (!Array.isArray(state.wizard.ppe)) state.wizard.ppe = [];
+      const clean = canonicalizePpeName(label);
+      if (!clean) return;
+      const key = clean.toLowerCase();
       if (checked) {
-        if (!state.wizard.ppe.includes(label)) state.wizard.ppe.push(label);
+        if (!state.wizard.ppe.some(item => item.trim().toLowerCase() === key)) {
+          state.wizard.ppe.push(clean);
+        }
       } else {
-        state.wizard.ppe = state.wizard.ppe.filter(item => item !== label);
+        state.wizard.ppe = state.wizard.ppe.filter(item => item.trim().toLowerCase() !== key);
       }
+      renderMain();
     }
 
     function addWizardCustomPpe() {
       const input = document.getElementById('wiz-custom-ppe');
-      const val = input ? input.value.trim() : '';
+      const val = canonicalizePpeName(input ? input.value : '');
       if (!val) return;
-      if (!state.wizard.ppe.includes(val)) state.wizard.ppe.push(val);
+      const key = val.toLowerCase();
+      if (state.wizard.ppe.some(item => item.trim().toLowerCase() === key)) {
+        showToast('PPE này đã có trong danh sách đã chọn.', 'info');
+        return;
+      }
+      state.wizard.ppe.push(val);
       renderMain();
     }
 
@@ -1837,7 +1927,7 @@
         floor: w.floor || 'Tầng 1',
         zoneId: w.zoneId,
         zoneName: w.zoneName,
-        ppe: [...(w.ppe || [])],
+        ppe: dedupeStringList(w.ppe || []),
         safetyRequirements: [...w.safetyRequirements],
         jsa: w.jsa.map(item => ({ ...item })),
         workers: w.workers.map(wk => ({ name: wk.name.trim(), age: String(wk.age).trim(), idCard: wk.idCard.trim() })),
@@ -2686,35 +2776,65 @@
     function renderEhsSafetyTab(container) {
       const code = state.ehsSafetyType;
       const tpl = db.safetyTemplates[code] || createDefaultSafetyTemplates()[code];
+      tpl.ppe = dedupeStringList(tpl.ppe || []);
+      db.ppeCatalog = dedupeStringList([...(db.ppeCatalog || STANDARD_PPE_OPTIONS), ...tpl.ppe]);
+      const selectedPpeSet = new Set(tpl.ppe.map(item => item.toLowerCase()));
+      const currentMeta = getPermitTypeMeta(code);
 
       container.innerHTML = `
         <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-5">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 class="text-base font-extrabold text-navy">Set-up Yêu cầu An toàn, PPE &amp; JSA theo Loại Giấy phép</h3>
-              <p class="text-xs text-slate-500">Thay đổi tại đây sẽ tự động áp dụng khi Nhà thầu hoặc Quản lý đăng ký giấy phép mới.</p>
+              <p class="text-xs text-slate-500">Chọn loại giấy phép bên dưới — hệ thống tự động hiển thị toàn bộ PPE và tick sẵn các PPE bắt buộc của loại đó.</p>
             </div>
           </div>
 
           <div class="flex flex-wrap gap-2">
-            ${PERMIT_TYPES.map(pt => `
-              <button onclick="state.ehsSafetyType = '${pt.code}'; renderMain();" class="px-3.5 py-2 rounded-xl text-xs font-extrabold border-2 transition ${code === pt.code ? 'bg-amber-500 text-white border-amber-500 shadow-sm' : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-300'}">
-                <i class="fa-solid ${pt.icon} mr-1"></i> ${escapeHtml(pt.name)}
-              </button>
-            `).join('')}
+            ${PERMIT_TYPES.map(pt => {
+              const ptPpeCount = dedupeStringList((db.safetyTemplates[pt.code] || {}).ppe || []).length;
+              return `
+                <button onclick="state.ehsSafetyType = '${pt.code}'; renderMain();" class="px-3.5 py-2 rounded-xl text-xs font-extrabold border-2 transition flex items-center gap-1.5 ${code === pt.code ? 'bg-amber-500 text-white border-amber-500 shadow-sm' : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-300'}">
+                  <i class="fa-solid ${pt.icon}"></i>
+                  <span>${escapeHtml(pt.name)}</span>
+                  <span class="px-1.5 py-0.5 rounded-full text-[10px] ${code === pt.code ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-600'}">${ptPpeCount} PPE</span>
+                </button>
+              `;
+            }).join('')}
           </div>
 
           <div class="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-200 space-y-3">
-            <div class="text-xs font-extrabold text-indigo-900 uppercase">1. Danh mục PPE mặc định</div>
-            <div class="space-y-2">
-              ${(tpl.ppe || []).map((item, idx) => `
-                <div class="flex gap-2">
-                  <input type="text" value="${escapeHtml(item)}" oninput="db.safetyTemplates['${code}'].ppe[${idx}] = this.value" class="flex-1 px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs outline-none focus:border-indigo-500" />
-                  <button onclick="db.safetyTemplates['${code}'].ppe.splice(${idx}, 1); saveSafetyTemplatesNow();" class="px-2.5 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 text-xs"><i class="fa-solid fa-trash-can"></i></button>
-                </div>
-              `).join('')}
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="text-xs font-extrabold text-indigo-900 uppercase flex items-center gap-1.5">
+                <i class="fa-solid fa-vest-patches text-indigo-600"></i>
+                1. Danh sách tất cả PPE — Bắt buộc cho: <span class="text-eaton underline">${escapeHtml(currentMeta.name)}</span>
+              </div>
+              <span class="px-2.5 py-1 rounded-full bg-indigo-600 text-white text-[11px] font-extrabold">
+                Đang tick: ${tpl.ppe.length} / ${db.ppeCatalog.length} PPE
+              </span>
             </div>
-            <button onclick="db.safetyTemplates['${code}'].ppe.push('Yêu cầu PPE mới...'); saveSafetyTemplatesNow();" class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold">+ Thêm PPE</button>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              ${db.ppeCatalog.map((item, idx) => {
+                const isChecked = selectedPpeSet.has(item.toLowerCase());
+                return `
+                  <label class="flex items-center gap-2.5 p-2.5 rounded-xl border-2 cursor-pointer transition ${isChecked ? 'bg-white border-indigo-500 shadow-sm' : 'bg-white/70 border-slate-200 hover:border-indigo-300'}">
+                    <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleEhsTemplatePpe('${code}', ${idx}, this.checked)" class="w-4 h-4 accent-indigo-600 rounded shrink-0" />
+                    <span class="text-xs font-semibold flex-1 ${isChecked ? 'text-navy font-bold' : 'text-slate-600'}">${escapeHtml(item)}</span>
+                    <button type="button" onclick="event.preventDefault(); event.stopPropagation(); deletePpeFromCatalog(${idx});" title="Xóa PPE này khỏi danh mục chung" class="w-6 h-6 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition shrink-0">
+                      <i class="fa-solid fa-trash-can text-[11px]"></i>
+                    </button>
+                  </label>
+                `;
+              }).join('')}
+            </div>
+
+            <div class="flex gap-2 pt-1">
+              <input type="text" id="ehs-new-ppe-input" onkeydown="if(event.key==='Enter'){ event.preventDefault(); addPpeToCatalog(); }" placeholder="Thêm loại PPE mới vào danh sách chung (VD: Giày ủng cao su chống hóa chất)..." class="flex-1 px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs outline-none focus:border-indigo-500" />
+              <button type="button" onclick="addPpeToCatalog()" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shrink-0">
+                + Thêm PPE mới
+              </button>
+            </div>
           </div>
 
           <div class="p-4 rounded-2xl bg-amber-50/50 border border-amber-200 space-y-3">
@@ -2756,9 +2876,87 @@
       `;
     }
 
-    async function saveSafetyTemplatesNow(notify = false) {
+    async function toggleEhsTemplatePpe(permitCode, catalogIdx, isChecked) {
+      const ppeName = (db.ppeCatalog || [])[catalogIdx];
+      if (!ppeName) return;
+      const tpl = db.safetyTemplates[permitCode];
+      if (!tpl) return;
+
+      const key = ppeName.toLowerCase();
+      tpl.ppe = dedupeStringList(tpl.ppe || []);
+      if (isChecked) {
+        if (!tpl.ppe.some(x => x.toLowerCase() === key)) {
+          tpl.ppe.push(ppeName);
+        }
+      } else {
+        tpl.ppe = tpl.ppe.filter(x => x.toLowerCase() !== key);
+      }
       await DB.saveSetting('safetyTemplates', db.safetyTemplates);
-      if (notify) showToast('Đã lưu cấu hình an toàn lên hệ thống!', 'success');
+      renderMain();
+    }
+
+    async function addPpeToCatalog() {
+      const input = document.getElementById('ehs-new-ppe-input');
+      const val = canonicalizePpeName(input ? input.value : '');
+      if (!val) {
+        showToast('Vui lòng nhập tên PPE mới.', 'warning');
+        return;
+      }
+      const key = val.toLowerCase();
+      if ((db.ppeCatalog || []).some(x => x.toLowerCase() === key)) {
+        showToast('PPE này đã có trong danh sách rồi!', 'warning');
+        return;
+      }
+      db.ppeCatalog.push(val);
+      db.ppeCatalog = dedupeStringList(db.ppeCatalog);
+
+      // Tự động tick luôn cho loại giấy phép đang mở
+      const code = state.ehsSafetyType;
+      if (db.safetyTemplates[code]) {
+        db.safetyTemplates[code].ppe = dedupeStringList([...(db.safetyTemplates[code].ppe || []), val]);
+      }
+
+      await Promise.all([
+        DB.saveSetting('ppeCatalog', db.ppeCatalog),
+        DB.saveSetting('safetyTemplates', db.safetyTemplates)
+      ]);
+      showToast(`Đã thêm "${val}" vào danh sách PPE!`, 'success');
+      renderMain();
+    }
+
+    async function deletePpeFromCatalog(catalogIdx) {
+      const ppeName = (db.ppeCatalog || [])[catalogIdx];
+      if (!ppeName) return;
+      const key = ppeName.toLowerCase();
+      db.ppeCatalog.splice(catalogIdx, 1);
+
+      // Gỡ khỏi tất cả các mẫu giấy phép để đồng bộ sạch
+      PERMIT_TYPES.forEach(pt => {
+        if (db.safetyTemplates[pt.code] && Array.isArray(db.safetyTemplates[pt.code].ppe)) {
+          db.safetyTemplates[pt.code].ppe = db.safetyTemplates[pt.code].ppe.filter(x => x.toLowerCase() !== key);
+        }
+      });
+
+      await Promise.all([
+        DB.saveSetting('ppeCatalog', db.ppeCatalog),
+        DB.saveSetting('safetyTemplates', db.safetyTemplates)
+      ]);
+      showToast(`Đã xóa PPE "${ppeName}" khỏi danh mục.`, 'info');
+      renderMain();
+    }
+
+    async function saveSafetyTemplatesNow(notify = false) {
+      PERMIT_TYPES.forEach(pt => {
+        if (db.safetyTemplates[pt.code]) {
+          db.safetyTemplates[pt.code].ppe = dedupeStringList(db.safetyTemplates[pt.code].ppe || []);
+        }
+      });
+      db.ppeCatalog = dedupeStringList(db.ppeCatalog || STANDARD_PPE_OPTIONS);
+      await Promise.all([
+        DB.saveSetting('ppeCatalog', db.ppeCatalog),
+        DB.saveSetting('safetyTemplates', db.safetyTemplates)
+      ]);
+      if (notify) showToast('Đã lưu cấu hình an toàn & PPE lên hệ thống!', 'success');
       renderMain();
     }
 
