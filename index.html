@@ -1,0 +1,3429 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BOYD THERMAL by EATON — Hệ thống Đăng ký Giấy phép Làm việc (E-PTW)</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Font Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <!-- JSZip for Real .ZIP Backup -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- Supabase JS Client v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            navy: '#0F2540',
+            eaton: '#1657A5',
+            boydRed: '#DC2626'
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f1f5f9;
+      color: #0f172a;
+    }
+
+    /* Square Red Diagonal Stamp (Dấu đỏ vuông chéo) */
+    .red-stamp {
+      width: 82px;
+      height: 82px;
+      border: 2.5px solid #dc2626;
+      color: #dc2626;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      transform: rotate(-12deg);
+      border-radius: 4px;
+      background: rgba(254, 242, 242, 0.72);
+      box-shadow: inset 0 0 0 1.5px rgba(220, 38, 38, 0.35);
+      padding: 3px;
+      line-height: 1.1;
+      user-select: none;
+    }
+
+    /* Highlight animation for active map zone */
+    @keyframes pulseZone {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.75); }
+      50% { box-shadow: 0 0 0 8px rgba(250, 204, 21, 0); }
+    }
+    .zone-active {
+      animation: pulseZone 1.8s infinite;
+    }
+
+    /* A4 Sheet styling for preview & print */
+    .a4-sheet {
+      width: 210mm;
+      min-height: 292mm;
+      max-width: 100%;
+      margin: 0 auto 20px auto;
+      background: #ffffff;
+      padding: 11mm 12mm;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+      border-radius: 6px;
+      box-sizing: border-box;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+      body {
+        background: #ffffff !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      #print-modal-overlay {
+        position: static !important;
+        background: #ffffff !important;
+        padding: 0 !important;
+        overflow: visible !important;
+        display: block !important;
+      }
+      #print-modal-container {
+        max-width: none !important;
+        width: 100% !important;
+        box-shadow: none !important;
+        background: transparent !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+      .a4-sheet {
+        width: 210mm !important;
+        height: 296mm !important;
+        min-height: 296mm !important;
+        max-height: 296mm !important;
+        margin: 0 !important;
+        padding: 9mm 11mm !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        page-break-after: always !important;
+        break-after: page !important;
+        overflow: hidden !important;
+      }
+      .a4-sheet:last-child {
+        page-break-after: auto !important;
+        break-after: auto !important;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+  <!-- Toast Container -->
+  <div id="toast-container" class="no-print fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm w-[calc(100%-2rem)] pointer-events-none"></div>
+
+  <!-- Top Header -->
+  <header id="app-header" class="no-print sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm"></header>
+
+  <!-- Main Content -->
+  <main id="app-main" class="no-print flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-5"></main>
+
+  <!-- Dynamic Modal Root -->
+  <div id="modal-root"></div>
+
+  <script>
+    // =========================================================================
+    // 0. CẤU HÌNH KẾT NỐI SUPABASE (DÁN 2 THÔNG SỐ CỦA BẠN VÀO ĐÂY)
+    // =========================================================================
+    const SUPABASE_URL = 'https://lpayrvxuazkvjboumoas.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_4prbv8bklJMq_Pa_BLAgqg__Ob-aTSr';
+    const isSupabaseConfigured = Boolean(
+      window.supabase &&
+      SUPABASE_URL &&
+      SUPABASE_ANON_KEY &&
+      !SUPABASE_URL.includes('YOUR_SUPABASE_URL') &&
+      !SUPABASE_ANON_KEY.includes('YOUR_SUPABASE_ANON_KEY')
+    );
+
+    const supabaseClient = isSupabaseConfigured
+      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+      : null;
+
+    // =========================================================================
+    // 1. LOGO SVG CHUẨN BOYD THERMAL by EATON
+    // =========================================================================
+    function buildBoydEatonSVG(widthPx = 110) {
+      const heightPx = Math.round(widthPx * 0.94);
+      return `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 206" width="${widthPx}" height="${heightPx}" class="shrink-0 select-none" aria-label="BOYD THERMAL by EATON">
+          <text x="2" y="66" font-family="Inter, Arial Black, Helvetica, sans-serif" font-weight="900" font-size="71" fill="#000000" textLength="216" lengthAdjust="spacingAndGlyphs">BOYD</text>
+          <text x="4" y="114" font-family="Inter, Helvetica Neue, Arial, sans-serif" font-weight="400" font-size="37" fill="#000000" textLength="212" lengthAdjust="spacingAndGlyphs">THERMAL</text>
+          <text x="6" y="176" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="500" font-size="36" fill="#111827">by</text>
+          <g fill="#1657A5" transform="translate(58, 134)">
+            <path d="M0,0 H34 L30,13 H14 V18 H29 V30 H14 V36 H32 L36,49 H0 Z" />
+            <polygon points="44,8 50,28 38,28" />
+            <polygon points="35,36 53,36 57,49 31,49" />
+            <path d="M51,0 H84 C74,7 69,17 69,28 C69,36 72,44 77,49 H62 V14 H55 Z" />
+            <circle cx="93" cy="26" r="10.5" />
+            <path d="M107,0 H125 L139,30 V0 H156 V49 H138 L124,19 V49 H107 Z" />
+          </g>
+        </svg>
+      `;
+    }
+
+    // =========================================================================
+    // 2. CONSTANTS, PERMIT TYPES, PPE & DEFAULT TEMPLATES
+    // =========================================================================
+    const DB_KEY = 'BOYD_EATON_EPTW_DB_V6';
+    const FACTORY_LIST = ['B1', 'B2', 'B3', 'B4'];
+    const FLOOR_LIST = ['Tầng 1', 'Tầng 2', 'Outside', 'Tầng mái'];
+
+    const PERMIT_TYPES = [
+      { code: 'GENERAL', name: 'Giấy phép thông thường', icon: 'fa-clipboard-check', color: 'blue', dateRule: 'MAX_7_DAYS', ruleLabel: 'Tối đa 7 ngày (đăng ký trước 1 ngày)' },
+      { code: 'HOT_WORK', name: 'Giấy phép thi công Hàn cắt', icon: 'fa-fire-flame-curved', color: 'orange', dateRule: 'SINGLE_DAY', ruleLabel: 'Chỉ 1 ngày (đăng ký trước 1 ngày)' },
+      { code: 'HEIGHT', name: 'Giấy phép làm việc trên cao', icon: 'fa-person-falling-burst', color: 'amber', dateRule: 'SINGLE_DAY', ruleLabel: 'Chỉ 1 ngày (đăng ký trước 1 ngày)' },
+      { code: 'CONFINED', name: 'Giấy phép làm việc trong không gian hạn chế', icon: 'fa-box-open', color: 'purple', dateRule: 'SINGLE_DAY', ruleLabel: 'Chỉ 1 ngày (đăng ký trước 1 ngày)' },
+      { code: 'ELECTRICAL', name: 'Giấy phép thi công điện', icon: 'fa-bolt', color: 'yellow', dateRule: 'SINGLE_DAY', ruleLabel: 'Chỉ 1 ngày (đăng ký trước 1 ngày)' },
+      { code: 'LIFTING', name: 'Giấy phép nâng hạ vật nặng', icon: 'fa-weight-hanging', color: 'teal', dateRule: 'SINGLE_DAY', ruleLabel: 'Chỉ 1 ngày (đăng ký trước 1 ngày)' },
+      { code: 'LOTO', name: 'Giấy phép ngắt nguồn năng lượng (LOTO)', icon: 'fa-lock', color: 'red', dateRule: 'MULTI_DAY', ruleLabel: 'Chọn nhiều ngày (đăng ký trước 1 ngày)' }
+    ];
+
+    const STANDARD_PPE_OPTIONS = [
+      'Mũ bảo hộ công nghiệp (Hard Hat)',
+      'Giày bảo hộ mũi thép (Safety Shoes)',
+      'Kính bảo hộ chống bụi/văng bắn',
+      'Áo phản quang nhận diện nhà thầu',
+      'Găng tay bảo hộ chống cắt / cơ khí',
+      'Nút tai / Chụp tai chống ồn',
+      'Khẩu trang lọc bụi / Mặt nạ phòng độc',
+      'Dây đai an toàn toàn thân 2 móc (Full Body Harness)',
+      'Mặt nạ hàn & Găng tay da chịu nhiệt',
+      'Găng tay & Thảm cách điện đạt chuẩn kiểm định'
+    ];
+
+    function createDefaultSafetyTemplates() {
+      return {
+        GENERAL: {
+          ppe: [
+            'Mũ bảo hộ công nghiệp (Hard Hat)',
+            'Giày bảo hộ mũi thép (Safety Shoes)',
+            'Kính bảo hộ chống bụi/văng bắn',
+            'Áo phản quang nhận diện nhà thầu'
+          ],
+          safety: [
+            'Công nhân đã được huấn luyện an toàn đầu vào của BOYD và mang đầy đủ PPE tiêu chuẩn.',
+            'Khu vực thi công được rào chắn, căng dây cảnh báo và đặt biển báo nguy hiểm rõ ràng.',
+            'Dụng cụ, thiết bị cầm tay đã được kiểm tra tình trạng an toàn, dây dẫn không hở vỏ.',
+            'Đảm bảo vệ sinh công nghiệp 5S, thu gom rác thải đúng quy định sau khi kết thúc.'
+          ],
+          jsa: [
+            { step: 'Tập kết vật tư và rào chắn khu vực', hazard: 'Va chạm xe nâng, vấp ngã vật liệu', control: 'Đi đúng lối đi bộ, căng dây phản quang và xếp gọn vật tư' },
+            { step: 'Thực hiện công việc lắp đặt / bảo trì', hazard: 'Kẹp tay, bụi bay vào mắt, điện giật dụng cụ', control: 'Đeo găng tay, kính bảo hộ, dùng nguồn có ELCB 30mA' },
+            { step: 'Thu dọn hiện trường và bàn giao 5S', hazard: 'Sót vật tư, dầu mỡ gây trơn trượt', control: 'Kiểm tra sạch sẽ toàn khu vực cùng người quản lý dự án' }
+          ]
+        },
+        HOT_WORK: {
+          ppe: [
+            'Mũ bảo hộ công nghiệp (Hard Hat)',
+            'Giày bảo hộ mũi thép (Safety Shoes)',
+            'Mặt nạ hàn & Găng tay da chịu nhiệt',
+            'Áo phản quang nhận diện nhà thầu',
+            'Khẩu trang lọc bụi / Mặt nạ phòng độc'
+          ],
+          safety: [
+            'Di dời toàn bộ vật liệu dễ cháy trong bán kính tối thiểu 11 mét xung quanh khu vực hàn cắt.',
+            'Che chắn tia lửa bằng bạt chống cháy chuyên dụng, bịt kín các lỗ sàn và rãnh cáp.',
+            'Trang bị tối thiểu 02 bình chữa cháy CO2/Bột ABC đã kiểm định ngay tại vị trí thi công.',
+            'Bố trí người canh lửa (Fire Watch) xuyên suốt quá trình làm việc và theo dõi thêm 60 phút sau khi kết thúc.',
+            'Máy hàn, dây cáp hàn, van chống cháy ngược (nếu dùng khí) đạt chuẩn an toàn và có tiếp địa.'
+          ],
+          jsa: [
+            { step: 'Chuẩn bị hiện trường và che chắn chống cháy', hazard: 'Tia lửa bắn vào vật liệu dễ cháy gây hỏa hoạn', control: 'Dọn sạch vật dễ cháy 11m, trải bạt chống cháy, đặt sẵn bình PCCC' },
+            { step: 'Tiến hành hàn / cắt kim loại', hazard: 'Bỏng nhiệt, bức xạ hồ quang, hít khói hàn', control: 'Đeo mặt nạ hàn, găng tay da, bật quạt hút khói cục bộ' },
+            { step: 'Kiểm tra nguội và canh lửa sau thi công', hazard: 'Tàn lửa âm ỉ bùng phát cháy lại', control: 'Cử người canh lửa ít nhất 60 phút, kiểm tra nhiệt độ bề mặt' }
+          ]
+        },
+        HEIGHT: {
+          ppe: [
+            'Mũ bảo hộ công nghiệp (Hard Hat)',
+            'Giày bảo hộ mũi thép (Safety Shoes)',
+            'Dây đai an toàn toàn thân 2 móc (Full Body Harness)',
+            'Áo phản quang nhận diện nhà thầu',
+            'Găng tay bảo hộ chống cắt / cơ khí'
+          ],
+          safety: [
+            'Áp dụng cho mọi công việc ở độ cao từ 2.0 mét trở lên; công nhân có đủ sức khỏe, không sợ độ cao.',
+            'Bắt buộc đeo dây đai an toàn toàn thân 2 móc, móc vào điểm neo chắc chắn cao hơn vai.',
+            'Giàn giáo đã được nghiệm thu gắn thẻ xanh; xe nâng người (Scissor/Boom lift) còn hạn kiểm định.',
+            'Dụng cụ cầm tay phải có dây buộc chống rơi; rào chắn khu vực bên dưới chống vật rơi.'
+          ],
+          jsa: [
+            { step: 'Kiểm tra giàn giáo / thang / xe nâng người', hazard: 'Đổ giàn giáo, trượt thang, thiết bị mất ổn định', control: 'Chỉ dùng giàn giáo có thẻ xanh, đặt trên nền phẳng cứng, khóa bánh xe' },
+            { step: 'Thi công trên cao (>= 2m)', hazard: 'Ngã cao, rơi dụng cụ xuống người phía dưới', control: 'Móc dây đai 100% thời gian, buộc dây dụng cụ, rào chắn phía dưới' },
+            { step: 'Xuống mặt đất và tháo dỡ thiết bị', hazard: 'Trượt chân khi leo xuống', control: 'Tuân thủ nguyên tắc 3 điểm tiếp xúc, không nhảy từ trên cao' }
+          ]
+        },
+        CONFINED: {
+          ppe: [
+            'Mũ bảo hộ công nghiệp (Hard Hat)',
+            'Giày bảo hộ mũi thép (Safety Shoes)',
+            'Khẩu trang lọc bụi / Mặt nạ phòng độc',
+            'Dây đai an toàn toàn thân 2 móc (Full Body Harness)',
+            'Áo phản quang nhận diện nhà thầu'
+          ],
+          safety: [
+            'Đo kiểm nồng độ khí trước khi vào và định kỳ: O2 (19.5% - 23.5%), LEL < 10%, CO < 25ppm, H2S < 10ppm.',
+            'Thông gió cưỡng bức liên tục trước và trong suốt quá trình làm việc bên trong.',
+            'Bắt buộc bố trí người trực ngoài cửa (Attendant) giữ liên lạc liên tục, ghi sổ ra/vào.',
+            'Sẵn sàng phương án và thiết bị cứu hộ khẩn cấp (dây cứu sinh, tripod, bộ đàm).',
+            'Đèn chiếu sáng và dụng cụ điện bên trong sử dụng điện áp an toàn <= 24V hoặc chống cháy nổ.'
+          ],
+          jsa: [
+            { step: 'Cô lập nguồn, thông gió và đo khí', hazard: 'Thiếu oxy, tích tụ khí độc hoặc khí dễ cháy nổ', control: 'Khóa LOTO đầu vào, chạy quạt thông gió, ghi biên bản đo khí đạt chuẩn' },
+            { step: 'Thi công bên trong không gian hạn chế', hazard: 'Ngất xỉu, điện giật trong môi trường ẩm', control: 'Người trực ngoài giữ liên lạc mỗi 15 phút, dùng đèn 24V, mang máy đo khí cá nhân' },
+            { step: 'Rút người và đóng nắp khu vực', hazard: 'Sót người hoặc dụng cụ bên trong', control: 'Điểm danh đối chiếu sổ ra/vào trước khi đóng nắp' }
+          ]
+        },
+        ELECTRICAL: {
+          ppe: [
+            'Mũ bảo hộ công nghiệp (Hard Hat)',
+            'Giày bảo hộ mũi thép (Safety Shoes)',
+            'Găng tay & Thảm cách điện đạt chuẩn kiểm định',
+            'Kính bảo hộ chống bụi/văng bắn',
+            'Áo phản quang nhận diện nhà thầu'
+          ],
+          safety: [
+            'Chỉ kỹ thuật viên có chứng chỉ an toàn điện phù hợp mới được thực hiện đấu nối.',
+            'Bắt buộc cắt nguồn, khóa LOTO, treo thẻ cảnh báo và kiểm tra không còn điện (Test before Touch).',
+            'Sử dụng dụng cụ cầm tay bọc cách điện đạt chuẩn 1000V, đi giày và găng tay cách điện.',
+            'Không làm việc một mình với tủ điện công nghiệp; có người giám sát hỗ trợ ngắt khẩn cấp.'
+          ],
+          jsa: [
+            { step: 'Ngắt nguồn điện, khóa LOTO và thử điện', hazard: 'Điện giật do đóng nhầm hoặc điện dư', control: 'Khóa ổ khóa cá nhân, đo kiểm bằng đồng hồ VOM đã kiểm tra hoạt động' },
+            { step: 'Đấu nối cáp, bảo trì thiết bị tủ điện', hazard: 'Phóng hồ quang điện, ngắn mạch', control: 'Dùng dụng cụ cách điện 1000V, đứng trên thảm cách điện, tháo trang sức kim loại' },
+            { step: 'Kiểm tra cách điện và đóng điện lại', hazard: 'Chập cháy khi cấp nguồn', control: 'Đo thông mạch/cách điện, thông báo toàn khu vực trước khi gỡ LOTO' }
+          ]
+        },
+        LIFTING: {
+          ppe: [
+            'Mũ bảo hộ công nghiệp (Hard Hat)',
+            'Giày bảo hộ mũi thép (Safety Shoes)',
+            'Áo phản quang nhận diện nhà thầu',
+            'Găng tay bảo hộ chống cắt / cơ khí'
+          ],
+          safety: [
+            'Thiết bị nâng (xe cẩu, pa-lăng, xe nâng) và phụ kiện (cáp, xích, ma-ní) còn hạn kiểm định và không hư hại.',
+            'Xác định rõ tải trọng vật nâng, tuyệt đối không nâng quá tải trọng cho phép của thiết bị.',
+            'Rào chắn toàn bộ bán kính quay của cần cẩu; nghiêm cấm đứng hoặc đi lại dưới tải đang treo.',
+            'Sử dụng dây dẫn hướng (Tagline) để điều chỉnh tải và bố trí người xi-nhan có chứng chỉ.'
+          ],
+          jsa: [
+            { step: 'Kiểm tra thiết bị nâng và mặt bằng đặt cẩu', hazard: 'Sụt lún chân chống, đứt cáp tải', control: 'Kê tấm lót chân chống chắc chắn, kiểm tra tem kiểm định cáp/ma-ní' },
+            { step: 'Móc tải, nâng thử và di chuyển vật nặng', hazard: 'Rơi tải, va đập vào kết cấu nhà xưởng', control: 'Nâng thử 20cm kiểm tra cân bằng, dùng dây tagline, rào chắn vùng nguy hiểm' },
+            { step: 'Hạ tải và tháo cáp', hazard: 'Kẹp tay, vật nặng lăn trượt', control: 'Chèn kê gỗ chắc chắn trước khi tháo cáp, giữ khoảng cách an toàn' }
+          ]
+        },
+        LOTO: {
+          ppe: [
+            'Mũ bảo hộ công nghiệp (Hard Hat)',
+            'Giày bảo hộ mũi thép (Safety Shoes)',
+            'Găng tay & Thảm cách điện đạt chuẩn kiểm định',
+            'Kính bảo hộ chống bụi/văng bắn',
+            'Áo phản quang nhận diện nhà thầu'
+          ],
+          safety: [
+            'Nhận diện đầy đủ mọi nguồn năng lượng (Điện, Khí nén, Thủy lực, Nhiệt, Hóa chất, Thế năng).',
+            'Mỗi người tham gia thi công phải tự gắn 01 ổ khóa LOTO cá nhân và thẻ ghi rõ tên, SĐT, thời gian.',
+            'Xả hoàn toàn năng lượng tích tụ dư thừa (xả áp khí, xả tụ, chèn cơ khí) và thử khởi động lại (Try-out).',
+            'Chìa khóa LOTO do chính người khóa giữ; chỉ người gắn khóa mới được phép tháo khóa khi hoàn tất.'
+          ],
+          jsa: [
+            { step: 'Thông báo vận hành và dừng thiết bị', hazard: 'Dừng đột ngột gây hỏng máy hoặc tai nạn dây chuyền', control: 'Phối hợp chủ khu vực dừng máy đúng quy trình' },
+            { step: 'Cô lập nguồn, gắn khóa + thẻ LOTO và xả năng lượng dư', hazard: 'Khởi động ngoài ý muốn, áp suất dư phun trào', control: 'Gắn khóa cá nhân có thẻ, xả hết áp suất/điện dư, nhấn nút Start thử không chạy' },
+            { step: 'Hoàn tất công việc và gỡ khóa LOTO', hazard: 'Còn người/dụng cụ trong máy khi cấp nguồn lại', control: 'Kiểm tra khu vực an toàn, thông báo mọi người trước khi gỡ khóa' }
+          ]
+        }
+      };
+    }
+
+    // =========================================================================
+    // 3. DATE & FORMAT UTILITIES
+    // =========================================================================
+    function formatDateISO(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function getTomorrowISO() {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      return formatDateISO(d);
+    }
+
+    function addDaysISO(isoDate, days) {
+      const [y, m, d] = isoDate.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      dt.setDate(dt.getDate() + days);
+      return formatDateISO(dt);
+    }
+
+    function formatDateVN(isoDate) {
+      if (!isoDate) return '';
+      const parts = isoDate.split('-');
+      if (parts.length !== 3) return isoDate;
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+
+    function formatDateTimeVN(isoStr) {
+      if (!isoStr) return '';
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return isoStr;
+      return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    }
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function getPermitTypeMeta(code) {
+      return PERMIT_TYPES.find(t => t.code === code) || PERMIT_TYPES[0];
+    }
+
+    function statusBadgeHTML(status) {
+      const map = {
+        PENDING_MANAGER: '<span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">Chờ Quản lý duyệt</span>',
+        PENDING_EHS: '<span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-100 text-sky-800 border border-sky-200">Chờ EHS duyệt</span>',
+        APPROVED: '<span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">Đã phê duyệt</span>',
+        REJECTED_MANAGER: '<span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-100 text-red-700 border border-red-200">Quản lý từ chối</span>',
+        REJECTED_EHS: '<span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-200">EHS từ chối</span>'
+      };
+      return map[status] || `<span class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">${escapeHtml(status)}</span>`;
+    }
+
+    // =========================================================================
+    // 4. DATABASE LAYER (SUPABASE CLOUD + LOCALSTORAGE FALLBACK)
+    // =========================================================================
+    function createEmptyData() {
+      return {
+        ehsAccount: { username: 'admin', password: 'admin', fullName: 'Bộ phận EHS BOYD' },
+        managers: [],
+        contractors: [],
+        zones: { B1: [], B2: [], B3: [], B4: [] },
+        safetyTemplates: createDefaultSafetyTemplates(),
+        permits: [],
+        deletedPermits: []
+      };
+    }
+
+    function normalizeDbObject(rawObj) {
+      const seed = createEmptyData();
+      const defaultTpls = createDefaultSafetyTemplates();
+      const parsed = rawObj && typeof rawObj === 'object' ? rawObj : seed;
+
+      if (!parsed.ehsAccount || !parsed.ehsAccount.username) parsed.ehsAccount = seed.ehsAccount;
+      if (!Array.isArray(parsed.managers)) parsed.managers = [];
+      if (!Array.isArray(parsed.contractors)) parsed.contractors = [];
+      if (!parsed.zones || typeof parsed.zones !== 'object') parsed.zones = seed.zones;
+      FACTORY_LIST.forEach(fac => {
+        if (!Array.isArray(parsed.zones[fac])) parsed.zones[fac] = [];
+        parsed.zones[fac].forEach(z => {
+          if (!z.floor) z.floor = 'Tầng 1';
+          if (z.floor === 'Tầng 3') z.floor = 'Outside';
+        });
+      });
+      if (!parsed.safetyTemplates || typeof parsed.safetyTemplates !== 'object') parsed.safetyTemplates = seed.safetyTemplates;
+      PERMIT_TYPES.forEach(pt => {
+        if (!parsed.safetyTemplates[pt.code]) {
+          parsed.safetyTemplates[pt.code] = defaultTpls[pt.code];
+        } else if (!Array.isArray(parsed.safetyTemplates[pt.code].ppe)) {
+          parsed.safetyTemplates[pt.code].ppe = [...defaultTpls[pt.code].ppe];
+        }
+      });
+      if (!Array.isArray(parsed.permits)) parsed.permits = [];
+      parsed.permits.forEach(p => {
+        if (!p.floor) p.floor = 'Tầng 1';
+        if (p.floor === 'Tầng 3') p.floor = 'Outside';
+        if (!Array.isArray(p.ppe)) {
+          const tpl = parsed.safetyTemplates[p.permitType] || defaultTpls.GENERAL;
+          p.ppe = p.archived ? [] : [...(tpl.ppe || [])];
+        }
+      });
+      if (!Array.isArray(parsed.deletedPermits)) parsed.deletedPermits = [];
+      return parsed;
+    }
+
+    const DB = {
+      cloudOnline: false,
+      isSyncing: false,
+
+      loadLocal() {
+        try {
+          const raw = localStorage.getItem(DB_KEY);
+          if (!raw) {
+            const empty = createEmptyData();
+            localStorage.setItem(DB_KEY, JSON.stringify(empty));
+            return empty;
+          }
+          return normalizeDbObject(JSON.parse(raw));
+        } catch (err) {
+          console.error('Local load error:', err);
+          return createEmptyData();
+        }
+      },
+
+      saveLocal(data) {
+        try {
+          localStorage.setItem(DB_KEY, JSON.stringify(data));
+        } catch (err) {
+          console.error('Local save error:', err);
+        }
+      },
+
+      async init() {
+        if (!supabaseClient) {
+          this.cloudOnline = false;
+          db = this.loadLocal();
+          return;
+        }
+        await this.refreshFromCloud(true);
+      },
+
+      async refreshFromCloud(silent = false) {
+        if (!supabaseClient) return;
+        this.isSyncing = true;
+        try {
+          const [settingsRes, permitsRes, deletedRes] = await Promise.all([
+            supabaseClient.from('eptw_settings').select('key, value'),
+            supabaseClient.from('eptw_permits').select('data').order('created_at', { ascending: false }),
+            supabaseClient.from('eptw_deleted_permits').select('data').order('deleted_at', { ascending: false })
+          ]);
+
+          if (settingsRes.error) throw settingsRes.error;
+          if (permitsRes.error) throw permitsRes.error;
+          if (deletedRes.error) throw deletedRes.error;
+
+          const base = createEmptyData();
+          const existingKeys = new Set();
+          (settingsRes.data || []).forEach(row => {
+            existingKeys.add(row.key);
+            base[row.key] = row.value;
+          });
+
+          base.permits = (permitsRes.data || []).map(r => r.data);
+          base.deletedPermits = (deletedRes.data || []).map(r => r.data);
+          db = normalizeDbObject(base);
+
+          // Khởi tạo các khóa cấu hình mặc định lên Supabase trong lần chạy đầu tiên
+          const requiredKeys = ['ehsAccount', 'managers', 'contractors', 'zones', 'safetyTemplates'];
+          const missingRows = requiredKeys
+            .filter(k => !existingKeys.has(k))
+            .map(k => ({ key: k, value: db[k], updated_at: new Date().toISOString() }));
+
+          if (missingRows.length > 0) {
+            await supabaseClient.from('eptw_settings').upsert(missingRows, { onConflict: 'key' });
+          }
+
+          this.cloudOnline = true;
+          this.saveLocal(db);
+          if (!silent) showToast('Đã đồng bộ dữ liệu mới nhất từ Supabase!', 'success');
+        } catch (err) {
+          console.error('Supabase sync error:', err);
+          this.cloudOnline = false;
+          db = this.loadLocal();
+          showToast('Không thể kết nối Supabase (đang dùng dữ liệu Local). Kiểm tra lại URL/Key hoặc bảng SQL.', 'warning');
+        } finally {
+          this.isSyncing = false;
+        }
+      },
+
+      async saveSetting(key, value) {
+        db[key] = value;
+        this.saveLocal(db);
+        if (!supabaseClient) return true;
+        try {
+          const { error } = await supabaseClient
+            .from('eptw_settings')
+            .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+          if (error) throw error;
+          this.cloudOnline = true;
+          return true;
+        } catch (err) {
+          console.error('saveSetting error:', err);
+          showToast('Lỗi đồng bộ cấu hình lên Supabase: ' + err.message, 'error');
+          return false;
+        }
+      },
+
+      async upsertPermit(permit) {
+        this.saveLocal(db);
+        if (!supabaseClient) return true;
+        try {
+          const { error } = await supabaseClient
+            .from('eptw_permits')
+            .upsert({
+              id: permit.id,
+              status: permit.status,
+              start_date: permit.startDate,
+              manager_username: permit.managerUsername,
+              data: permit,
+              created_at: permit.createdAt || new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'id' });
+          if (error) throw error;
+          this.cloudOnline = true;
+          return true;
+        } catch (err) {
+          console.error('upsertPermit error:', err);
+          showToast('Lỗi lưu giấy phép lên Supabase: ' + err.message, 'error');
+          return false;
+        }
+      },
+
+      async upsertPermitsBatch(permitsList) {
+        this.saveLocal(db);
+        if (!supabaseClient || !permitsList.length) return true;
+        try {
+          const rows = permitsList.map(p => ({
+            id: p.id,
+            status: p.status,
+            start_date: p.startDate,
+            manager_username: p.managerUsername,
+            data: p,
+            created_at: p.createdAt || new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }));
+          const { error } = await supabaseClient.from('eptw_permits').upsert(rows, { onConflict: 'id' });
+          if (error) throw error;
+          this.cloudOnline = true;
+          return true;
+        } catch (err) {
+          console.error('upsertPermitsBatch error:', err);
+          showToast('Lỗi cập nhật hàng loạt lên Supabase: ' + err.message, 'error');
+          return false;
+        }
+      },
+
+      async deletePermit(permitId, deletedRecord) {
+        this.saveLocal(db);
+        if (!supabaseClient) return true;
+        try {
+          const [delRes, insRes] = await Promise.all([
+            supabaseClient.from('eptw_permits').delete().eq('id', permitId),
+            supabaseClient.from('eptw_deleted_permits').upsert({
+              id: deletedRecord.id,
+              data: deletedRecord,
+              deleted_at: deletedRecord.deletedAt || new Date().toISOString()
+            }, { onConflict: 'id' })
+          ]);
+          if (delRes.error) throw delRes.error;
+          if (insRes.error) throw insRes.error;
+          this.cloudOnline = true;
+          return true;
+        } catch (err) {
+          console.error('deletePermit error:', err);
+          showToast('Lỗi xóa giấy phép trên Supabase: ' + err.message, 'error');
+          return false;
+        }
+      }
+    };
+
+    let db = DB.loadLocal();
+
+    // =========================================================================
+    // 5. APPLICATION STATE
+    // =========================================================================
+    const nowDate = new Date();
+
+    function createEmptyWizard() {
+      const tmr = getTomorrowISO();
+      return {
+        step: 1,
+        contractorId: '',
+        contractorName: '',
+        contractorSupervisor: '',
+        contractorPhone: '',
+        permitType: 'GENERAL',
+        startDate: tmr,
+        endDate: tmr,
+        startTime: '08:00',
+        endTime: '17:00',
+        managerUsername: '',
+        managerName: '',
+        department: '',
+        projectName: '',
+        workDescription: '',
+        locationDetail: '',
+        ppe: [],
+        safetyRequirements: [],
+        jsa: [],
+        workers: [{ name: '', age: '', idCard: '' }],
+        factory: 'B1',
+        floor: 'Tầng 1',
+        zoneId: '',
+        zoneName: '',
+        agreed: false,
+        addAnother: false,
+        lastCreatedId: ''
+      };
+    }
+
+    const state = {
+      appReady: false,
+      view: 'HOME', // HOME | CONTRACTOR | MANAGEMENT | EHS
+      homeFilterYear: String(nowDate.getFullYear()),
+      homeFilterMonth: 'ALL',
+      mgmtAuthMode: 'login',
+      currentManager: null,
+      mgmtTab: 'APPROVE',
+      mgmtSelectedContractor: null,
+      mgmtHistoryContractor: 'ALL',
+      mgmtHistoryMonth: 'ALL',
+      mgmtHistorySort: 'DATE_DESC',
+      ehsLoggedIn: false,
+      ehsTab: 'APPROVE',
+      ehsSelectedContractor: null,
+      ehsCalYear: nowDate.getFullYear(),
+      ehsCalMonth: nowDate.getMonth(),
+      ehsSelectedDate: null,
+      ehsSafetyType: 'GENERAL',
+      ehsMapFactory: 'B1',
+      ehsMapFloor: 'Tầng 1',
+      wizard: createEmptyWizard()
+    };
+
+    function applySafetyTemplateToWizard(permitTypeCode) {
+      const tpl = db.safetyTemplates[permitTypeCode] || createDefaultSafetyTemplates().GENERAL;
+      state.wizard.ppe = [...(tpl.ppe || [])];
+      state.wizard.safetyRequirements = [...(tpl.safety || [])];
+      state.wizard.jsa = (tpl.jsa || []).map(item => ({ ...item }));
+    }
+
+    // =========================================================================
+    // 6. TOAST, SYNC & NAVIGATION
+    // =========================================================================
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const colors = {
+        success: 'bg-emerald-600 text-white border-emerald-700',
+        error: 'bg-red-600 text-white border-red-700',
+        warning: 'bg-amber-500 text-white border-amber-600',
+        info: 'bg-navy text-white border-slate-800'
+      };
+      const icons = {
+        success: 'fa-circle-check',
+        error: 'fa-circle-xmark',
+        warning: 'fa-triangle-exclamation',
+        info: 'fa-circle-info'
+      };
+      const el = document.createElement('div');
+      el.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-sm font-semibold transition-all duration-300 ${colors[type] || colors.info}`;
+      el.innerHTML = `<i class="fa-solid ${icons[type] || icons.info} text-base"></i><span class="flex-1">${escapeHtml(message)}</span>`;
+      container.appendChild(el);
+      setTimeout(() => {
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(20px)';
+        setTimeout(() => el.remove(), 300);
+      }, 3200);
+    }
+
+    function closeModal() {
+      document.getElementById('modal-root').innerHTML = '';
+    }
+
+    async function manualCloudSync() {
+      if (!supabaseClient) {
+        showToast('Chưa dán SUPABASE_URL và SUPABASE_ANON_KEY vào đầu file HTML.', 'info');
+        return;
+      }
+      await DB.refreshFromCloud(false);
+      renderAll();
+    }
+
+    async function navigateTo(view) {
+      if (supabaseClient) {
+        await DB.refreshFromCloud(true);
+      }
+      state.view = view;
+      if (view === 'CONTRACTOR') {
+        state.wizard = createEmptyWizard();
+        applySafetyTemplateToWizard('GENERAL');
+      }
+      renderAll();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function renderAll() {
+      renderHeader();
+      renderMain();
+    }
+
+    // =========================================================================
+    // 7. HEADER
+    // =========================================================================
+    function renderHeader() {
+      const header = document.getElementById('app-header');
+      let rightControls = '';
+
+      const cloudBadge = isSupabaseConfigured
+        ? (DB.cloudOnline
+            ? `<button onclick="manualCloudSync()" title="Bấm để đồng bộ dữ liệu mới nhất từ Supabase" class="px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 text-[11px] font-bold flex items-center gap-1.5 transition">
+                 <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                 <span class="hidden sm:inline">Supabase Online</span>
+                 <i class="fa-solid fa-arrows-rotate text-[10px]"></i>
+               </button>`
+            : `<button onclick="manualCloudSync()" title="Bấm để thử kết nối lại Supabase" class="px-2.5 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-[11px] font-bold flex items-center gap-1.5 transition">
+                 <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                 <span class="hidden sm:inline">Mất kết nối</span>
+                 <i class="fa-solid fa-arrows-rotate text-[10px]"></i>
+               </button>`)
+        : `<button onclick="manualCloudSync()" title="Dán SUPABASE_URL & SUPABASE_ANON_KEY vào file HTML để chạy trực tuyến" class="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 text-[11px] font-bold flex items-center gap-1.5 transition">
+             <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+             <span class="hidden sm:inline">Chế độ Local</span>
+           </button>`;
+
+      if (state.view === 'CONTRACTOR') {
+        rightControls = `
+          <div class="flex items-center gap-2">
+            ${cloudBadge}
+            <button onclick="navigateTo('HOME')" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-bold transition flex items-center gap-1.5">
+              <i class="fa-solid fa-house"></i> Trang chủ
+            </button>
+          </div>
+        `;
+      } else if (state.view === 'MANAGEMENT') {
+        if (state.currentManager) {
+          rightControls = `
+            <div class="flex items-center gap-2 flex-wrap justify-end">
+              ${cloudBadge}
+              <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-xs font-bold text-navy">
+                <i class="fa-solid fa-user-tie text-eaton"></i>
+                <span>${escapeHtml(state.currentManager.fullName)}</span>
+                <span class="text-slate-400">|</span>
+                <span class="text-eaton">${escapeHtml(state.currentManager.department)}</span>
+              </div>
+              <button onclick="logoutManager()" class="px-3.5 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs sm:text-sm font-bold transition flex items-center gap-1.5">
+                <i class="fa-solid fa-right-from-bracket"></i> Đăng xuất
+              </button>
+            </div>
+          `;
+        } else {
+          rightControls = `
+            <div class="flex items-center gap-2">
+              ${cloudBadge}
+              <button onclick="navigateTo('HOME')" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-bold transition flex items-center gap-1.5">
+                <i class="fa-solid fa-house"></i> Trang chủ
+              </button>
+            </div>
+          `;
+        }
+      } else if (state.view === 'EHS') {
+        if (state.ehsLoggedIn) {
+          rightControls = `
+            <div class="flex items-center gap-2 flex-wrap justify-end">
+              ${cloudBadge}
+              <button onclick="openEhsBackupModal()" class="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition flex items-center gap-1.5">
+                <i class="fa-solid fa-file-zipper"></i> <span>Backup (.ZIP)</span>
+              </button>
+              <button onclick="openEhsAdminModal('PASSWORD')" class="px-3 py-2 rounded-xl bg-navy hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition flex items-center gap-1.5">
+                <i class="fa-solid fa-users-gear"></i> <span class="hidden md:inline">Đổi MK / Quản lý TK</span><span class="md:hidden">Tài khoản</span>
+              </button>
+              <button onclick="logoutEhs()" class="px-3 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold transition flex items-center gap-1.5">
+                <i class="fa-solid fa-right-from-bracket"></i> Log-out
+              </button>
+            </div>
+          `;
+        } else {
+          rightControls = `
+            <div class="flex items-center gap-2">
+              ${cloudBadge}
+              <button onclick="navigateTo('HOME')" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-bold transition flex items-center gap-1.5">
+                <i class="fa-solid fa-house"></i> Trang chủ
+              </button>
+            </div>
+          `;
+        }
+      } else {
+        rightControls = `
+          <div class="flex items-center gap-3">
+            ${cloudBadge}
+            <div class="text-right hidden sm:block">
+              <div class="text-xs font-extrabold text-navy uppercase tracking-wide">E-PTW Management System</div>
+              <div class="text-[11px] text-slate-500 font-medium">Hệ thống Quản lý Giấy phép Làm việc Điện tử</div>
+            </div>
+          </div>
+        `;
+      }
+
+      header.innerHTML = `
+        <div class="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between gap-3">
+          <div onclick="navigateTo('HOME')" class="flex items-center gap-3 cursor-pointer group">
+            ${buildBoydEatonSVG(58)}
+            <div class="border-l-2 border-slate-200 pl-3">
+              <div class="text-sm sm:text-base font-black text-navy leading-tight group-hover:text-eaton transition">E-PTW PORTAL</div>
+              <div class="text-[11px] font-semibold text-slate-500">An toàn Nhà thầu &amp; Kiểm soát Thi công</div>
+            </div>
+          </div>
+          ${rightControls}
+        </div>
+      `;
+    }
+
+    // =========================================================================
+    // 8. MAIN ROUTER
+    // =========================================================================
+    function renderMain() {
+      const main = document.getElementById('app-main');
+      if (!state.appReady) {
+        main.innerHTML = `
+          <div class="max-w-md mx-auto mt-16 bg-white rounded-3xl border border-slate-200 p-8 text-center shadow-sm space-y-3">
+            <i class="fa-solid fa-circle-notch fa-spin text-3xl text-eaton"></i>
+            <div class="text-sm font-extrabold text-navy">Đang kết nối dữ liệu hệ thống BOYD E-PTW...</div>
+          </div>
+        `;
+        return;
+      }
+
+      try {
+        if (state.view === 'HOME') {
+          renderHomeView(main);
+        } else if (state.view === 'CONTRACTOR') {
+          renderPermitWizardContainer(main, 'CONTRACTOR');
+        } else if (state.view === 'MANAGEMENT') {
+          if (!state.currentManager) renderManagementAuth(main);
+          else renderManagementDashboard(main);
+        } else if (state.view === 'EHS') {
+          if (!state.ehsLoggedIn) renderEhsAuth(main);
+          else renderEhsDashboard(main);
+        }
+      } catch (err) {
+        console.error('Render error:', err);
+        main.innerHTML = `
+          <div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center max-w-lg mx-auto">
+            <i class="fa-solid fa-triangle-exclamation text-3xl text-red-500 mb-2"></i>
+            <div class="font-bold text-red-800">Đã xảy ra lỗi hiển thị giao diện</div>
+            <p class="text-xs text-red-600 mt-1">${escapeHtml(err.message)}</p>
+            <button onclick="navigateTo('HOME')" class="mt-4 px-4 py-2 rounded-xl bg-navy text-white text-xs font-bold">Quay về Trang chủ</button>
+          </div>
+        `;
+      }
+    }
+
+    // =========================================================================
+    // 9. HOME VIEW: LOGO -> TỔNG HỢP (THỐNG KÊ) -> BẢNG CHỌN
+    // =========================================================================
+    function renderHomeView(container) {
+      const yearsSet = new Set([String(nowDate.getFullYear()), String(nowDate.getFullYear() - 1), String(nowDate.getFullYear() + 1)]);
+      db.permits.forEach(p => {
+        if (p.startDate && p.startDate.length >= 4) yearsSet.add(p.startDate.slice(0, 4));
+      });
+      const yearOptions = Array.from(yearsSet).sort((a, b) => Number(b) - Number(a));
+
+      const filteredPermits = db.permits.filter(p => {
+        if (!p.startDate) return false;
+        const [py, pm] = p.startDate.split('-');
+        if (state.homeFilterYear !== 'ALL' && py !== state.homeFilterYear) return false;
+        if (state.homeFilterMonth !== 'ALL' && Number(pm) !== Number(state.homeFilterMonth)) return false;
+        return true;
+      });
+
+      const stats = {
+        total: filteredPermits.length,
+        pendingMgmt: filteredPermits.filter(p => p.status === 'PENDING_MANAGER').length,
+        pendingEhs: filteredPermits.filter(p => p.status === 'PENDING_EHS').length,
+        approved: filteredPermits.filter(p => p.status === 'APPROVED').length,
+        rejected: filteredPermits.filter(p => p.status === 'REJECTED_MANAGER' || p.status === 'REJECTED_EHS').length
+      };
+
+      const filterText = state.homeFilterMonth === 'ALL'
+        ? (state.homeFilterYear === 'ALL' ? 'Tất cả thời gian' : `Cả năm ${state.homeFilterYear}`)
+        : `Tháng ${state.homeFilterMonth}/${state.homeFilterYear === 'ALL' ? 'Tất cả' : state.homeFilterYear}`;
+
+      container.innerHTML = `
+        <div class="space-y-6 max-w-5xl mx-auto">
+          <!-- 1. LOGO & THƯƠNG HIỆU -->
+          <section class="bg-white rounded-3xl border border-slate-200 shadow-sm px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-5">
+            <div class="flex flex-col sm:flex-row items-center gap-5 text-center sm:text-left">
+              <div class="p-2.5 rounded-2xl bg-slate-50 border border-slate-100">
+                ${buildBoydEatonSVG(112)}
+              </div>
+              <div>
+                <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-[11px] font-extrabold text-eaton uppercase tracking-wider mb-1.5">
+                  <i class="fa-solid fa-shield-halved"></i> Permit To Work System
+                </div>
+                <h1 class="text-xl sm:text-2xl font-black text-navy tracking-tight">
+                  HỆ THỐNG ĐĂNG KÝ GIẤY PHÉP LÀM VIỆC (E-PTW)
+                </h1>
+                <p class="text-xs sm:text-sm text-slate-500 mt-1">
+                  Kiểm soát an toàn nhà thầu, đánh giá rủi ro JSA, yêu cầu PPE và phê duyệt trực tuyến tại nhà máy B1–B4.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <!-- 2. TỔNG HỢP THỐNG KÊ (LỌC THEO THÁNG / NĂM) -->
+          <section class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3.5">
+              <div>
+                <h2 class="text-sm sm:text-base font-extrabold text-navy flex items-center gap-2">
+                  <i class="fa-solid fa-chart-pie text-eaton"></i>
+                  Tổng hợp Giấy phép Làm việc
+                  <span class="text-xs font-semibold text-slate-400">(${escapeHtml(filterText)})</span>
+                </h2>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <div class="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5">
+                  <i class="fa-regular fa-calendar text-slate-400 text-xs"></i>
+                  <select onchange="state.homeFilterMonth = this.value; renderMain();" class="bg-transparent text-xs font-bold text-navy outline-none cursor-pointer">
+                    <option value="ALL" ${state.homeFilterMonth === 'ALL' ? 'selected' : ''}>Tất cả các tháng</option>
+                    ${Array.from({ length: 12 }, (_, i) => i + 1).map(m => `
+                      <option value="${m}" ${String(state.homeFilterMonth) === String(m) ? 'selected' : ''}>Tháng ${m}</option>
+                    `).join('')}
+                  </select>
+                </div>
+                <div class="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5">
+                  <select onchange="state.homeFilterYear = this.value; renderMain();" class="bg-transparent text-xs font-bold text-navy outline-none cursor-pointer">
+                    <option value="ALL" ${state.homeFilterYear === 'ALL' ? 'selected' : ''}>Tất cả các năm</option>
+                    ${yearOptions.map(y => `
+                      <option value="${y}" ${state.homeFilterYear === y ? 'selected' : ''}>Năm ${y}</option>
+                    `).join('')}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+                <div class="text-[11px] font-bold text-slate-500 uppercase">Tổng giấy phép</div>
+                <div class="text-2xl font-black text-navy mt-1">${stats.total}</div>
+              </div>
+              <div class="p-3.5 rounded-2xl bg-amber-50 border border-amber-200">
+                <div class="text-[11px] font-bold text-amber-700 uppercase">Chờ Quản lý</div>
+                <div class="text-2xl font-black text-amber-700 mt-1">${stats.pendingMgmt}</div>
+              </div>
+              <div class="p-3.5 rounded-2xl bg-sky-50 border border-sky-200">
+                <div class="text-[11px] font-bold text-sky-700 uppercase">Chờ EHS duyệt</div>
+                <div class="text-2xl font-black text-sky-700 mt-1">${stats.pendingEhs}</div>
+              </div>
+              <div class="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200">
+                <div class="text-[11px] font-bold text-emerald-700 uppercase">Đã phê duyệt</div>
+                <div class="text-2xl font-black text-emerald-700 mt-1">${stats.approved}</div>
+              </div>
+              <div class="p-3.5 rounded-2xl bg-red-50 border border-red-200 col-span-2 sm:col-span-1">
+                <div class="text-[11px] font-bold text-red-700 uppercase">Từ chối / Hủy</div>
+                <div class="text-2xl font-black text-red-700 mt-1">${stats.rejected}</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 3. BẢNG CHỌN 3 PHÂN HỆ -->
+          <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <button onclick="navigateTo('CONTRACTOR')" class="group text-left bg-white rounded-3xl border-2 border-slate-200 hover:border-eaton p-6 shadow-sm hover:shadow-xl transition-all duration-200 flex flex-col justify-between">
+              <div>
+                <div class="w-12 h-12 rounded-2xl bg-blue-50 text-eaton group-hover:bg-eaton group-hover:text-white flex items-center justify-center text-xl transition mb-4">
+                  <i class="fa-solid fa-helmet-safety"></i>
+                </div>
+                <h3 class="text-lg font-extrabold text-navy group-hover:text-eaton transition">Nhà thầu (Contractor)</h3>
+                <p class="text-xs sm:text-sm text-slate-500 mt-1.5 leading-relaxed">
+                  Đăng ký giấy phép làm việc mới, chọn loại giấy phép, PPE, đánh giá JSA, nhân sự và khu vực thi công.
+                </p>
+              </div>
+              <div class="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-extrabold text-eaton">
+                <span>Bắt đầu đăng ký</span>
+                <i class="fa-solid fa-arrow-right group-hover:translate-x-1 transition"></i>
+              </div>
+            </button>
+
+            <button onclick="navigateTo('MANAGEMENT')" class="group text-left bg-white rounded-3xl border-2 border-slate-200 hover:border-amber-500 p-6 shadow-sm hover:shadow-xl transition-all duration-200 flex flex-col justify-between">
+              <div>
+                <div class="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-white flex items-center justify-center text-xl transition mb-4">
+                  <i class="fa-solid fa-user-tie"></i>
+                </div>
+                <h3 class="text-lg font-extrabold text-navy group-hover:text-amber-600 transition">Người quản lý (Management)</h3>
+                <p class="text-xs sm:text-sm text-slate-500 mt-1.5 leading-relaxed">
+                  Xác nhận giấy phép của nhà thầu phụ trách, tạo giấy phép thay mặt và tra cứu lịch sử thi công.
+                </p>
+              </div>
+              <div class="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-extrabold text-amber-600">
+                <span>Đăng nhập Quản lý</span>
+                <i class="fa-solid fa-arrow-right group-hover:translate-x-1 transition"></i>
+              </div>
+            </button>
+
+            <button onclick="navigateTo('EHS')" class="group text-left bg-white rounded-3xl border-2 border-slate-200 hover:border-emerald-600 p-6 shadow-sm hover:shadow-xl transition-all duration-200 flex flex-col justify-between">
+              <div>
+                <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white flex items-center justify-center text-xl transition mb-4">
+                  <i class="fa-solid fa-shield-virus"></i>
+                </div>
+                <h3 class="text-lg font-extrabold text-navy group-hover:text-emerald-600 transition">Bộ phận EHS</h3>
+                <p class="text-xs sm:text-sm text-slate-500 mt-1.5 leading-relaxed">
+                  Kiểm tra & Phê duyệt giấy phép, thiết lập an toàn/PPE
+                </p>
+              </div>
+              <div class="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-extrabold text-emerald-600">
+                <span>Đăng nhập EHS</span>
+                <i class="fa-solid fa-arrow-right group-hover:translate-x-1 transition"></i>
+              </div>
+            </button>
+          </section>
+        </div>
+      `;
+    }
+
+    // =========================================================================
+    // 10. PERMIT CREATION WIZARD (SHARED BY CONTRACTOR & MANAGEMENT)
+    // =========================================================================
+    function renderPermitWizardContainer(container, mode) {
+      const w = state.wizard;
+      const steps = [
+        { n: 1, label: 'Nhà thầu' },
+        { n: 2, label: 'Loại GP' },
+        { n: 3, label: 'Thời gian' },
+        { n: 4, label: 'An toàn & JSA' },
+        { n: 5, label: 'Nhân sự' },
+        { n: 6, label: 'Khu vực' },
+        { n: 7, label: 'Cam kết' }
+      ];
+
+      let stepBody = '';
+      if (w.step === 1) stepBody = renderWizardStep1();
+      else if (w.step === 2) stepBody = renderWizardStep2();
+      else if (w.step === 3) stepBody = renderWizardStep3();
+      else if (w.step === 4) stepBody = renderWizardStep4(mode);
+      else if (w.step === 5) stepBody = renderWizardStep5();
+      else if (w.step === 6) stepBody = renderWizardStep6();
+      else if (w.step === 7) stepBody = renderWizardStep7();
+      else if (w.step === 8) stepBody = renderWizardStep8(mode);
+
+      container.innerHTML = `
+        <div class="max-w-4xl mx-auto space-y-5">
+          ${w.step <= 7 ? `
+            <div class="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm overflow-x-auto">
+              <div class="flex items-center justify-between min-w-[540px] gap-1">
+                ${steps.map(s => {
+                  const done = w.step > s.n;
+                  const active = w.step === s.n;
+                  return `
+                    <div class="flex-1 flex flex-col items-center relative">
+                      <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-extrabold border-2 transition ${done ? 'bg-emerald-500 border-emerald-500 text-white' : active ? 'bg-eaton border-eaton text-white shadow' : 'bg-slate-50 border-slate-200 text-slate-400'}">
+                        ${done ? '<i class="fa-solid fa-check"></i>' : s.n}
+                      </div>
+                      <span class="text-[11px] font-bold mt-1 ${active ? 'text-eaton' : done ? 'text-emerald-700' : 'text-slate-400'}">${s.label}</span>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="bg-white rounded-3xl border border-slate-200 p-5 sm:p-7 shadow-sm">
+            ${stepBody}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderWizardStep1() {
+      const w = state.wizard;
+      return `
+        <div class="space-y-5">
+          <div>
+            <h3 class="text-lg font-extrabold text-navy">1. Thông tin Nhà thầu (Contractor)</h3>
+            <p class="text-xs sm:text-sm text-slate-500 mt-1">Chọn đơn vị nhà thầu từ danh sách đã được bộ phận EHS đăng ký sẵn.</p>
+          </div>
+
+          ${db.contractors.length === 0 ? `
+            <div class="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs sm:text-sm text-amber-800 font-semibold">
+              <i class="fa-solid fa-circle-info mr-1.5"></i> Hiện chưa có danh sách nhà thầu. Vui lòng liên hệ bộ phận EHS để thêm nhà thầu vào hệ thống.
+            </div>
+          ` : `
+            <div class="space-y-4">
+              <div>
+                <label class="block text-xs font-bold text-slate-600 uppercase mb-1.5">Chọn Đơn vị Nhà thầu *</label>
+                <select onchange="onSelectWizardContractor(this.value)" class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-eaton bg-white text-sm font-bold text-navy outline-none">
+                  <option value="">-- Chọn nhà thầu trong danh sách --</option>
+                  ${db.contractors.map(c => `
+                    <option value="${escapeHtml(c.id)}" ${w.contractorId === c.id ? 'selected' : ''}>${escapeHtml(c.name)} (${escapeHtml(c.id)})</option>
+                  `).join('')}
+                </select>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                <div>
+                  <div class="text-[11px] font-bold text-slate-400 uppercase">Tên đơn vị</div>
+                  <div class="text-sm font-bold text-navy mt-1">${w.contractorName ? escapeHtml(w.contractorName) : '<span class="text-slate-400 font-normal">Chưa chọn</span>'}</div>
+                </div>
+                <div>
+                  <div class="text-[11px] font-bold text-slate-400 uppercase">Người phụ trách</div>
+                  <div class="text-sm font-bold text-navy mt-1">${w.contractorSupervisor ? escapeHtml(w.contractorSupervisor) : '<span class="text-slate-400 font-normal">—</span>'}</div>
+                </div>
+                <div>
+                  <div class="text-[11px] font-bold text-slate-400 uppercase">Số điện thoại</div>
+                  <div class="text-sm font-bold text-eaton mt-1">${w.contractorPhone ? escapeHtml(w.contractorPhone) : '<span class="text-slate-400 font-normal">—</span>'}</div>
+                </div>
+              </div>
+            </div>
+          `}
+
+          <div class="flex justify-end pt-2">
+            <button onclick="wizardNextFromStep1()" class="px-6 py-2.5 rounded-xl bg-eaton hover:bg-blue-700 text-white text-sm font-bold shadow transition">
+              Tiếp tục <i class="fa-solid fa-arrow-right ml-1.5"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function onSelectWizardContractor(ctrId) {
+      const c = db.contractors.find(item => item.id === ctrId);
+      if (c) {
+        state.wizard.contractorId = c.id;
+        state.wizard.contractorName = c.name;
+        state.wizard.contractorSupervisor = c.supervisor;
+        state.wizard.contractorPhone = c.phone;
+      } else {
+        state.wizard.contractorId = '';
+        state.wizard.contractorName = '';
+        state.wizard.contractorSupervisor = '';
+        state.wizard.contractorPhone = '';
+      }
+      renderMain();
+    }
+
+    function wizardNextFromStep1() {
+      if (!state.wizard.contractorId) {
+        showToast('Vui lòng chọn đơn vị Nhà thầu trong danh sách.', 'warning');
+        return;
+      }
+      state.wizard.step = 2;
+      renderMain();
+    }
+
+    function renderWizardStep2() {
+      const w = state.wizard;
+      return `
+        <div class="space-y-5">
+          <div>
+            <h3 class="text-lg font-extrabold text-navy">2. Đăng ký Loại Giấy phép Làm việc</h3>
+            <p class="text-xs sm:text-sm text-slate-500 mt-1">Chọn đúng loại giấy phép phù hợp với tính chất công việc thi công.</p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            ${PERMIT_TYPES.map(pt => {
+              const active = w.permitType === pt.code;
+              return `
+                <button onclick="selectWizardPermitType('${pt.code}')" class="text-left p-4 rounded-2xl border-2 transition flex items-start gap-3.5 ${active ? 'border-eaton bg-blue-50/70 shadow-sm' : 'border-slate-200 hover:border-slate-300 bg-white'}">
+                  <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${active ? 'bg-eaton text-white' : 'bg-slate-100 text-slate-600'}">
+                    <i class="fa-solid ${pt.icon} text-base"></i>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm font-extrabold text-navy">${escapeHtml(pt.name)}</div>
+                    <div class="text-[11px] font-semibold text-slate-500 mt-0.5">${escapeHtml(pt.ruleLabel)}</div>
+                  </div>
+                  <div class="w-5 h-5 rounded-full border-2 flex items-center justify-center mt-0.5 ${active ? 'border-eaton bg-eaton text-white' : 'border-slate-300'}">
+                    ${active ? '<i class="fa-solid fa-check text-[10px]"></i>' : ''}
+                  </div>
+                </button>
+              `;
+            }).join('')}
+          </div>
+
+          <div class="flex justify-between pt-2">
+            <button onclick="state.wizard.step = 1; renderMain();" class="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold">
+              <i class="fa-solid fa-arrow-left mr-1"></i> Quay lại
+            </button>
+            <button onclick="wizardNextFromStep2()" class="px-6 py-2.5 rounded-xl bg-eaton hover:bg-blue-700 text-white text-sm font-bold shadow">
+              Tiếp tục <i class="fa-solid fa-arrow-right ml-1.5"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function selectWizardPermitType(code) {
+      state.wizard.permitType = code;
+      const tmr = getTomorrowISO();
+      state.wizard.startDate = tmr;
+      state.wizard.endDate = tmr;
+      applySafetyTemplateToWizard(code);
+      renderMain();
+    }
+
+    function wizardNextFromStep2() {
+      applySafetyTemplateToWizard(state.wizard.permitType);
+      state.wizard.step = 3;
+      renderMain();
+    }
+
+    function renderWizardStep3() {
+      const w = state.wizard;
+      const meta = getPermitTypeMeta(w.permitType);
+      const minStart = getTomorrowISO();
+      let maxEndAttr = '';
+      if (meta.dateRule === 'MAX_7_DAYS') {
+        maxEndAttr = `max="${addDaysISO(w.startDate || minStart, 6)}"`;
+      }
+
+      return `
+        <div class="space-y-5">
+          <div>
+            <h3 class="text-lg font-extrabold text-navy">3. Chọn Ngày &amp; Thời gian Thi công</h3>
+            <p class="text-xs sm:text-sm text-slate-500 mt-1">
+              Loại giấy phép: <strong class="text-eaton">${escapeHtml(meta.name)}</strong> — <span class="text-amber-700 font-semibold">${escapeHtml(meta.ruleLabel)}</span>.
+            </p>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-blue-50/70 border border-blue-200 text-xs text-navy flex items-start gap-2.5">
+            <i class="fa-solid fa-calendar-check text-eaton text-base mt-0.5"></i>
+            <div>
+              <strong>Quy định đăng ký thời gian:</strong> Bắt buộc đăng ký trước tối thiểu 01 ngày (từ ngày <strong>${formatDateVN(minStart)}</strong> trở đi). Khung giờ tiêu chuẩn là <strong>08:00 ~ 17:00</strong>.
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 uppercase mb-1.5">Ngày bắt đầu thi công *</label>
+              <input type="date" id="wiz-start-date" value="${escapeHtml(w.startDate)}" min="${minStart}" onchange="onWizardStartDateChange(this.value)" class="w-full px-4 py-2.5 rounded-xl border-2 border-slate-200 focus:border-eaton text-sm font-bold text-navy outline-none" />
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-slate-600 uppercase mb-1.5">Ngày kết thúc thi công *</label>
+              <input type="date" id="wiz-end-date" value="${escapeHtml(w.endDate)}" min="${escapeHtml(w.startDate || minStart)}" ${maxEndAttr} ${meta.dateRule === 'SINGLE_DAY' ? 'disabled' : ''} onchange="state.wizard.endDate = this.value;" class="w-full px-4 py-2.5 rounded-xl border-2 border-slate-200 focus:border-eaton text-sm font-bold text-navy outline-none ${meta.dateRule === 'SINGLE_DAY' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}" />
+              ${meta.dateRule === 'SINGLE_DAY' ? '<p class="text-[11px] text-amber-700 font-semibold mt-1">Loại giấy phép này chỉ cấp theo từng ngày đơn lẻ.</p>' : ''}
+              ${meta.dateRule === 'MAX_7_DAYS' ? '<p class="text-[11px] text-slate-500 mt-1">Giấy phép thông thường được chọn tối đa 7 ngày liên tiếp.</p>' : ''}
+              ${meta.dateRule === 'MULTI_DAY' ? '<p class="text-[11px] text-emerald-700 font-semibold mt-1">Giấy phép LOTO được phép chọn nhiều ngày liên tục.</p>' : ''}
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-slate-600 uppercase mb-1.5">Giờ bắt đầu</label>
+              <input type="time" value="${escapeHtml(w.startTime)}" onchange="state.wizard.startTime = this.value;" class="w-full px-4 py-2.5 rounded-xl border-2 border-slate-200 focus:border-eaton text-sm font-bold text-navy outline-none" />
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-slate-600 uppercase mb-1.5">Giờ kết thúc</label>
+              <input type="time" value="${escapeHtml(w.endTime)}" onchange="state.wizard.endTime = this.value;" class="w-full px-4 py-2.5 rounded-xl border-2 border-slate-200 focus:border-eaton text-sm font-bold text-navy outline-none" />
+            </div>
+          </div>
+
+          <div class="flex justify-between pt-2">
+            <button onclick="state.wizard.step = 2; renderMain();" class="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold">
+              <i class="fa-solid fa-arrow-left mr-1"></i> Quay lại
+            </button>
+            <button onclick="wizardNextFromStep3()" class="px-6 py-2.5 rounded-xl bg-eaton hover:bg-blue-700 text-white text-sm font-bold shadow">
+              Tiếp tục <i class="fa-solid fa-arrow-right ml-1.5"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function onWizardStartDateChange(val) {
+      const meta = getPermitTypeMeta(state.wizard.permitType);
+      state.wizard.startDate = val;
+      if (meta.dateRule === 'SINGLE_DAY') {
+        state.wizard.endDate = val;
+      } else if (meta.dateRule === 'MAX_7_DAYS') {
+        const maxAllowed = addDaysISO(val, 6);
+        if (!state.wizard.endDate || state.wizard.endDate < val) state.wizard.endDate = val;
+        if (state.wizard.endDate > maxAllowed) state.wizard.endDate = maxAllowed;
+      } else {
+        if (!state.wizard.endDate || state.wizard.endDate < val) state.wizard.endDate = val;
+      }
+      renderMain();
+    }
+
+    function wizardNextFromStep3() {
+      const w = state.wizard;
+      const minStart = getTomorrowISO();
+      const meta = getPermitTypeMeta(w.permitType);
+      if (!w.startDate || w.startDate < minStart) {
+        showToast('Chỉ được đăng ký từ ngày mai trở đi (trước tối thiểu 1 ngày).', 'warning');
+        return;
+      }
+      if (!w.endDate || w.endDate < w.startDate) {
+        showToast('Ngày kết thúc không hợp lệ.', 'warning');
+        return;
+      }
+      if (meta.dateRule === 'SINGLE_DAY' && w.endDate !== w.startDate) {
+        w.endDate = w.startDate;
+      }
+      if (meta.dateRule === 'MAX_7_DAYS' && w.endDate > addDaysISO(w.startDate, 6)) {
+        showToast('Giấy phép thông thường chỉ được đăng ký tối đa 7 ngày.', 'warning');
+        return;
+      }
+      w.step = 4;
+      renderMain();
+    }
+
+    function renderWizardStep4(mode) {
+      const w = state.wizard;
+      const meta = getPermitTypeMeta(w.permitType);
+
+      if (mode === 'MANAGEMENT' && state.currentManager && !w.managerUsername) {
+        w.managerUsername = state.currentManager.username;
+        w.managerName = state.currentManager.fullName;
+        w.department = state.currentManager.department;
+      }
+
+      const allPpeList = Array.from(new Set([...STANDARD_PPE_OPTIONS, ...(w.ppe || [])]));
+
+      return `
+        <div class="space-y-6">
+          <div>
+            <h3 class="text-lg font-extrabold text-navy">4. Thông tin Dự án, Yêu cầu PPE, An toàn &amp; JSA</h3>
+            <p class="text-xs sm:text-sm text-slate-500 mt-1">
+              Loại giấy phép: <strong class="text-eaton">${escapeHtml(meta.name)}</strong> • Ngày thi công: <strong>${formatDateVN(w.startDate)} → ${formatDateVN(w.endDate)}</strong> (${w.startTime} - ${w.endTime})
+            </p>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3.5">
+            <div class="text-xs font-extrabold text-navy uppercase tracking-wide flex items-center gap-1.5">
+              <i class="fa-solid fa-briefcase text-eaton"></i> Thông tin Dự án &amp; Bộ phận Quản lý
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">Người quản lý dự án (BOYD) *</label>
+                <select onchange="onSelectWizardManager(this.value)" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-bold text-navy outline-none focus:border-eaton">
+                  <option value="">-- Chọn người quản lý tiếp nhận --</option>
+                  ${db.managers.map(m => `
+                    <option value="${escapeHtml(m.username)}" ${w.managerUsername === m.username ? 'selected' : ''}>${escapeHtml(m.fullName)} — ${escapeHtml(m.department)}</option>
+                  `).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">Bộ phận quản lý *</label>
+                <input type="text" value="${escapeHtml(w.department)}" oninput="state.wizard.department = this.value" placeholder="Tự động điền theo người quản lý..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-eaton" />
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-xs font-bold text-slate-600 mb-1">Tên dự án / Hạng mục công việc *</label>
+                <input type="text" value="${escapeHtml(w.projectName)}" oninput="state.wizard.projectName = this.value" placeholder="VD: Lắp đặt hệ thống ống gió làm mát xưởng B1..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-eaton" />
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-xs font-bold text-slate-600 mb-1">Mô tả chi tiết công việc *</label>
+                <textarea rows="2" oninput="state.wizard.workDescription = this.value" placeholder="Mô tả các hạng mục sẽ thực hiện..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-eaton">${escapeHtml(w.workDescription)}</textarea>
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-xs font-bold text-slate-600 mb-1">Vị trí / Địa điểm cụ thể *</label>
+                <input type="text" value="${escapeHtml(w.locationDetail)}" oninput="state.wizard.locationDetail = this.value" placeholder="VD: Cột B3-B5, gần line lắp ráp số 2..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm outline-none focus:border-eaton" />
+              </div>
+            </div>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-indigo-50/60 border border-indigo-200 space-y-3">
+            <div class="text-xs font-extrabold text-indigo-900 uppercase tracking-wide flex items-center gap-1.5">
+              <i class="fa-solid fa-vest-patches text-indigo-600"></i> Yêu cầu Trang bị Bảo hộ Cá nhân (PPE) bắt buộc
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              ${allPpeList.map(item => {
+                const checked = (w.ppe || []).includes(item);
+                return `
+                  <label class="flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition ${checked ? 'bg-white border-indigo-400 shadow-sm' : 'bg-white/60 border-slate-200 hover:bg-white'}">
+                    <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleWizardPpe('${escapeHtml(item).replace(/'/g, "\\'")}', this.checked)" class="w-4 h-4 accent-indigo-600 rounded" />
+                    <span class="text-xs font-semibold text-slate-700">${escapeHtml(item)}</span>
+                  </label>
+                `;
+              }).join('')}
+            </div>
+            <div class="flex gap-2 pt-1">
+              <input type="text" id="wiz-custom-ppe" placeholder="Thêm yêu cầu PPE đặc thù khác..." class="flex-1 px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs outline-none focus:border-indigo-500" />
+              <button onclick="addWizardCustomPpe()" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold">+ Thêm PPE</button>
+            </div>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-amber-50/60 border border-amber-200 space-y-2.5">
+            <div class="text-xs font-extrabold text-amber-900 uppercase tracking-wide flex items-center gap-1.5">
+              <i class="fa-solid fa-shield-halved text-amber-600"></i> Các Yêu cầu An toàn cho ${escapeHtml(meta.name)}
+            </div>
+            <ul class="space-y-1.5 text-xs text-slate-700">
+              ${w.safetyRequirements.map((req, idx) => `
+                <li class="flex items-start gap-2 bg-white/90 p-2.5 rounded-xl border border-amber-100">
+                  <span class="w-5 h-5 rounded-full bg-amber-100 text-amber-800 font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">${idx + 1}</span>
+                  <span class="flex-1">${escapeHtml(req)}</span>
+                </li>
+              `).join('')}
+            </ul>
+          </div>
+
+          <div class="space-y-2.5">
+            <div class="flex items-center justify-between">
+              <div class="text-xs font-extrabold text-navy uppercase tracking-wide flex items-center gap-1.5">
+                <i class="fa-solid fa-table-list text-eaton"></i> Bảng Từng bước Công việc &amp; Đánh giá Rủi ro (JSA)
+              </div>
+              <button onclick="addWizardJsaRow()" class="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-eaton text-xs font-bold">+ Thêm bước JSA</button>
+            </div>
+            <div class="overflow-x-auto rounded-2xl border border-slate-200">
+              <table class="w-full text-xs">
+                <thead class="bg-navy text-white">
+                  <tr>
+                    <th class="p-2.5 text-left w-10">#</th>
+                    <th class="p-2.5 text-left">Bước công việc</th>
+                    <th class="p-2.5 text-left">Mối nguy tiềm ẩn</th>
+                    <th class="p-2.5 text-left">Biện pháp kiểm soát an toàn</th>
+                    <th class="p-2.5 w-10"></th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 bg-white">
+                  ${w.jsa.map((row, idx) => `
+                    <tr>
+                      <td class="p-2 font-bold text-slate-500 text-center">${idx + 1}</td>
+                      <td class="p-1.5"><input type="text" value="${escapeHtml(row.step)}" oninput="state.wizard.jsa[${idx}].step = this.value" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 focus:border-eaton outline-none" /></td>
+                      <td class="p-1.5"><input type="text" value="${escapeHtml(row.hazard)}" oninput="state.wizard.jsa[${idx}].hazard = this.value" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 focus:border-eaton outline-none" /></td>
+                      <td class="p-1.5"><input type="text" value="${escapeHtml(row.control)}" oninput="state.wizard.jsa[${idx}].control = this.value" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 focus:border-eaton outline-none" /></td>
+                      <td class="p-1.5 text-center">
+                        ${w.jsa.length > 1 ? `<button onclick="state.wizard.jsa.splice(${idx}, 1); renderMain();" class="text-red-400 hover:text-red-600 p-1"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="flex justify-between pt-2">
+            <button onclick="state.wizard.step = 3; renderMain();" class="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold">
+              <i class="fa-solid fa-arrow-left mr-1"></i> Quay lại
+            </button>
+            <button onclick="wizardNextFromStep4()" class="px-6 py-2.5 rounded-xl bg-eaton hover:bg-blue-700 text-white text-sm font-bold shadow">
+              Tiếp tục <i class="fa-solid fa-arrow-right ml-1.5"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function onSelectWizardManager(username) {
+      const m = db.managers.find(item => item.username === username);
+      if (m) {
+        state.wizard.managerUsername = m.username;
+        state.wizard.managerName = m.fullName;
+        state.wizard.department = m.department;
+      } else {
+        state.wizard.managerUsername = '';
+        state.wizard.managerName = '';
+        state.wizard.department = '';
+      }
+      renderMain();
+    }
+
+    function toggleWizardPpe(label, checked) {
+      if (!Array.isArray(state.wizard.ppe)) state.wizard.ppe = [];
+      if (checked) {
+        if (!state.wizard.ppe.includes(label)) state.wizard.ppe.push(label);
+      } else {
+        state.wizard.ppe = state.wizard.ppe.filter(item => item !== label);
+      }
+    }
+
+    function addWizardCustomPpe() {
+      const input = document.getElementById('wiz-custom-ppe');
+      const val = input ? input.value.trim() : '';
+      if (!val) return;
+      if (!state.wizard.ppe.includes(val)) state.wizard.ppe.push(val);
+      renderMain();
+    }
+
+    function addWizardJsaRow() {
+      state.wizard.jsa.push({ step: '', hazard: '', control: '' });
+      renderMain();
+    }
+
+    function wizardNextFromStep4() {
+      const w = state.wizard;
+      if (!w.managerUsername) { showToast('Vui lòng chọn Người quản lý dự án.', 'warning'); return; }
+      if (!w.department.trim()) { showToast('Vui lòng nhập Bộ phận quản lý.', 'warning'); return; }
+      if (!w.projectName.trim()) { showToast('Vui lòng nhập Tên dự án / Hạng mục.', 'warning'); return; }
+      if (!w.workDescription.trim()) { showToast('Vui lòng mô tả chi tiết công việc.', 'warning'); return; }
+      if (!w.locationDetail.trim()) { showToast('Vui lòng nhập Vị trí cụ thể.', 'warning'); return; }
+      if (!w.ppe || w.ppe.length === 0) { showToast('Vui lòng chọn ít nhất 01 yêu cầu PPE.', 'warning'); return; }
+      w.step = 5;
+      renderMain();
+    }
+
+    function renderWizardStep5() {
+      const w = state.wizard;
+      return `
+        <div class="space-y-5">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h3 class="text-lg font-extrabold text-navy">5. Đăng ký Danh sách Người làm việc</h3>
+              <p class="text-xs sm:text-sm text-slate-500 mt-1">Khai báo đầy đủ Họ tên, Tuổi và Số CCCD của toàn bộ nhân sự vào nhà máy.</p>
+            </div>
+            <button onclick="state.wizard.workers.push({ name: '', age: '', idCard: '' }); renderMain();" class="px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-eaton text-xs font-extrabold">
+              <i class="fa-solid fa-user-plus mr-1"></i> Thêm người
+            </button>
+          </div>
+
+          <div class="space-y-2.5">
+            ${w.workers.map((wk, idx) => `
+              <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 p-3 rounded-2xl bg-slate-50 border border-slate-200 items-center">
+                <div class="sm:col-span-1 text-xs font-extrabold text-slate-500 text-center">#${idx + 1}</div>
+                <div class="sm:col-span-5">
+                  <input type="text" value="${escapeHtml(wk.name)}" oninput="state.wizard.workers[${idx}].name = this.value" placeholder="Họ và tên *" class="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm outline-none focus:border-eaton" />
+                </div>
+                <div class="sm:col-span-2">
+                  <input type="number" min="18" max="65" value="${escapeHtml(wk.age)}" oninput="state.wizard.workers[${idx}].age = this.value" placeholder="Tuổi *" class="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm outline-none focus:border-eaton" />
+                </div>
+                <div class="sm:col-span-3">
+                  <input type="text" value="${escapeHtml(wk.idCard)}" oninput="state.wizard.workers[${idx}].idCard = this.value" placeholder="Số CCCD / CMND *" class="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm outline-none focus:border-eaton" />
+                </div>
+                <div class="sm:col-span-1 text-center">
+                  ${w.workers.length > 1 ? `
+                    <button onclick="state.wizard.workers.splice(${idx}, 1); renderMain();" class="p-2 text-red-500 hover:bg-red-50 rounded-lg transition">
+                      <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                  ` : ''}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+
+          <div class="flex justify-between pt-2">
+            <button onclick="state.wizard.step = 4; renderMain();" class="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold">
+              <i class="fa-solid fa-arrow-left mr-1"></i> Quay lại
+            </button>
+            <button onclick="wizardNextFromStep5()" class="px-6 py-2.5 rounded-xl bg-eaton hover:bg-blue-700 text-white text-sm font-bold shadow">
+              Tiếp tục <i class="fa-solid fa-arrow-right ml-1.5"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function wizardNextFromStep5() {
+      const valid = state.wizard.workers.every(wk => wk.name.trim() && String(wk.age).trim() && wk.idCard.trim());
+      if (!valid || state.wizard.workers.length === 0) {
+        showToast('Vui lòng nhập đầy đủ Tên, Tuổi và CCCD cho tất cả người làm việc.', 'warning');
+        return;
+      }
+      state.wizard.step = 6;
+      renderMain();
+    }
+
+    function renderZoneGridMap(factoryCode, floorName, selectedZoneId, clickable = true, allowDelete = false) {
+      const allFactoryZones = db.zones[factoryCode] || [];
+      const zones = allFactoryZones.filter(z => (z.floor || 'Tầng 1') === floorName);
+
+      return `
+        <div class="bg-slate-900 rounded-2xl border-2 border-slate-700 p-4 shadow-inner space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-700/80 pb-2.5">
+            <div class="text-xs font-extrabold text-sky-300 uppercase tracking-wider flex items-center gap-2">
+              <i class="fa-solid fa-layer-group"></i>
+              Mặt bằng Nhà máy ${escapeHtml(factoryCode)} — ${escapeHtml(floorName)}
+            </div>
+            <span class="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+              ${zones.length} ô khu vực
+            </span>
+          </div>
+
+          ${zones.length === 0 ? `
+            <div class="py-10 text-center text-slate-400 text-xs border-2 border-dashed border-slate-700 rounded-xl">
+              <i class="fa-regular fa-square-plus text-2xl mb-2 block text-slate-500"></i>
+              Chưa có khu vực nào được thiết lập tại <strong>${escapeHtml(factoryCode)} — ${escapeHtml(floorName)}</strong>.
+            </div>
+          ` : `
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              ${zones.map(z => {
+                const isActive = z.id === selectedZoneId;
+                return `
+                  <div ${clickable ? `onclick="selectWizardZone('${escapeHtml(z.id)}')"` : ''} class="relative rounded-xl border-2 p-3.5 min-h-[96px] flex flex-col justify-between transition ${clickable ? 'cursor-pointer' : ''} ${isActive ? 'zone-active bg-red-600/90 border-yellow-300 text-white shadow-lg' : 'bg-blue-950/75 border-blue-400/50 text-slate-100 ' + (clickable ? 'hover:border-sky-300 hover:bg-blue-900/80' : '')}">
+                    <div class="flex items-start justify-between gap-1.5">
+                      <span class="font-mono text-[11px] font-extrabold px-2 py-0.5 rounded ${isActive ? 'bg-yellow-300 text-red-900' : 'bg-slate-800/90 text-sky-300'}">
+                        ${escapeHtml(z.id)}
+                      </span>
+                      ${allowDelete ? `
+                        <button onclick="event.stopPropagation(); deleteEhsMapZone('${escapeHtml(factoryCode)}', '${escapeHtml(z.id)}')" class="w-6 h-6 rounded-lg bg-red-500/20 hover:bg-red-600 text-red-300 hover:text-white flex items-center justify-center transition" title="Xóa khu vực">
+                          <i class="fa-solid fa-trash-can text-[11px]"></i>
+                        </button>
+                      ` : (isActive ? '<i class="fa-solid fa-location-dot text-yellow-300 text-base"></i>' : '<i class="fa-regular fa-square text-slate-500 text-sm"></i>')}
+                    </div>
+                    <div class="mt-2 font-bold text-xs sm:text-[13px] leading-snug ${isActive ? 'text-white' : 'text-slate-100'}">
+                      ${escapeHtml(z.name)}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `}
+        </div>
+      `;
+    }
+
+    function renderWizardStep6() {
+      const w = state.wizard;
+
+      return `
+        <div class="space-y-5">
+          <div>
+            <h3 class="text-lg font-extrabold text-navy">6. Đăng ký Khu vực Làm việc (Nhà máy → Tầng → Khu vực)</h3>
+            <p class="text-xs sm:text-sm text-slate-500 mt-1">Chọn Nhà máy, chọn Tầng và bấm trực tiếp vào ô Khu vực thi công để phát sáng trên sơ đồ.</p>
+          </div>
+
+          <div class="space-y-2">
+            <div class="text-xs font-bold text-slate-500 uppercase">1. Chọn Nhà máy:</div>
+            <div class="flex flex-wrap gap-2">
+              ${FACTORY_LIST.map(f => `
+                <button onclick="state.wizard.factory = '${f}'; state.wizard.floor = 'Tầng 1'; state.wizard.zoneId = ''; state.wizard.zoneName = ''; renderMain();" class="px-5 py-2.5 rounded-xl text-sm font-extrabold border-2 transition ${w.factory === f ? 'bg-eaton text-white border-eaton shadow' : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'}">
+                  Nhà máy ${f}
+                </button>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <div class="text-xs font-bold text-slate-500 uppercase">2. Chọn Tầng tại ${escapeHtml(w.factory)}:</div>
+            <div class="flex flex-wrap gap-2">
+              ${FLOOR_LIST.map(fl => {
+                const count = (db.zones[w.factory] || []).filter(z => (z.floor || 'Tầng 1') === fl).length;
+                return `
+                  <button onclick="state.wizard.floor = '${escapeHtml(fl)}'; state.wizard.zoneId = ''; state.wizard.zoneName = ''; renderMain();" class="px-4 py-2 rounded-xl text-xs font-extrabold border-2 transition flex items-center gap-1.5 ${w.floor === fl ? 'bg-navy text-white border-navy shadow' : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-300'}">
+                    ${escapeHtml(fl)}
+                    <span class="px-1.5 py-0.5 rounded-full text-[10px] ${w.floor === fl ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'}">${count}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <div class="text-xs font-bold text-slate-500 uppercase">3. Chọn Ô Khu vực làm việc:</div>
+            ${renderZoneGridMap(w.factory, w.floor, w.zoneId, true, false)}
+            ${w.zoneName ? `
+              <div class="mt-2.5 px-4 py-2.5 rounded-xl bg-red-50 border border-red-200 text-xs sm:text-sm font-bold text-red-700 flex items-center gap-2">
+                <i class="fa-solid fa-bullseye"></i> Khu vực đã chọn: ${escapeHtml(w.factory)} • ${escapeHtml(w.floor)} — ${escapeHtml(w.zoneId)} (${escapeHtml(w.zoneName)})
+              </div>
+            ` : ''}
+          </div>
+
+          <div class="flex justify-between pt-2">
+            <button onclick="state.wizard.step = 5; renderMain();" class="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold">
+              <i class="fa-solid fa-arrow-left mr-1"></i> Quay lại
+            </button>
+            <button onclick="wizardNextFromStep6()" class="px-6 py-2.5 rounded-xl bg-eaton hover:bg-blue-700 text-white text-sm font-bold shadow">
+              Tiếp tục <i class="fa-solid fa-arrow-right ml-1.5"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function selectWizardZone(zoneId) {
+      const z = (db.zones[state.wizard.factory] || []).find(item => item.id === zoneId);
+      if (z) {
+        state.wizard.floor = z.floor || state.wizard.floor || 'Tầng 1';
+        state.wizard.zoneId = z.id;
+        state.wizard.zoneName = z.name;
+        renderMain();
+      }
+    }
+
+    function wizardNextFromStep6() {
+      if (!state.wizard.zoneId) {
+        showToast('Vui lòng bấm chọn một ô Khu vực làm việc trên sơ đồ.', 'warning');
+        return;
+      }
+      state.wizard.step = 7;
+      renderMain();
+    }
+
+    function renderWizardStep7() {
+      const w = state.wizard;
+      return `
+        <div class="space-y-5">
+          <div>
+            <h3 class="text-lg font-extrabold text-navy">7. Cam kết An toàn Lao động</h3>
+            <p class="text-xs sm:text-sm text-slate-500 mt-1">Vui lòng đọc kỹ và xác nhận cam kết tuân thủ quy định an toàn của công ty BOYD.</p>
+          </div>
+
+          <div class="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs sm:text-sm text-slate-700 leading-relaxed">
+            <p>1. Nhà thầu cam kết tất cả nhân sự tham gia thi công đều đã được phổ biến nội quy an toàn, trang bị đầy đủ phương tiện bảo hộ cá nhân (PPE) theo yêu cầu của giấy phép.</p>
+            <p>2. Chỉ tiến hành thi công khi Giấy phép Làm việc đã có đủ xác nhận của <strong>Người quản lý dự án</strong> và <strong>Bộ phận EHS</strong>, đúng thời gian và phạm vi khu vực đã đăng ký.</p>
+            <p>3. Tuân thủ nghiêm ngặt quy trình đánh giá rủi ro JSA, quy định PCCC, an toàn điện, làm việc trên cao, LOTO và sự giám sát của Người quản lý dự án &amp; EHS.</p>
+            <p>4. Dừng ngay công việc và báo cáo khẩn cấp cho Người quản lý dự án và EHS khi phát hiện dấu hiệu mất an toàn, sự cố hoặc thay đổi điều kiện hiện trường.</p>
+            <p>5. Sau khi hoàn thành công việc, thực hiện vệ sinh 5S, trả lại hiện trạng an toàn và ký xác nhận đóng giấy phép.</p>
+          </div>
+
+          <label class="flex items-start gap-3 p-4 rounded-2xl border-2 cursor-pointer transition ${w.agreed ? 'border-emerald-500 bg-emerald-50/70' : 'border-slate-200 bg-white'}">
+            <input type="checkbox" ${w.agreed ? 'checked' : ''} onchange="state.wizard.agreed = this.checked; renderMain();" class="w-5 h-5 mt-0.5 accent-emerald-600 rounded" />
+            <span class="text-xs sm:text-sm font-bold text-navy">
+              Đồng ý, đã đọc rõ các yêu cầu và cam kết chấp hành các yêu cầu an toàn của công ty.
+            </span>
+          </label>
+
+          <label class="flex items-center gap-3 p-3.5 rounded-2xl border border-blue-200 bg-blue-50/50 cursor-pointer">
+            <input type="checkbox" ${w.addAnother ? 'checked' : ''} onchange="state.wizard.addAnother = this.checked;" class="w-4 h-4 accent-eaton rounded" />
+            <span class="text-xs sm:text-sm font-semibold text-eaton">
+              Thêm giấy phép khác ngay sau khi gửi (giữ nguyên thông tin nhà thầu, quay lại bước Chọn loại giấy phép)
+            </span>
+          </label>
+
+          <div class="flex justify-between pt-2">
+            <button onclick="state.wizard.step = 6; renderMain();" class="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold">
+              <i class="fa-solid fa-arrow-left mr-1"></i> Quay lại
+            </button>
+            <button onclick="submitPermitWizard()" class="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-extrabold shadow transition">
+              <i class="fa-solid fa-paper-plane mr-1.5"></i> Tiếp tục &amp; Gửi đăng ký
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function generateNextPermitId() {
+      const year = new Date().getFullYear();
+      const prefix = `PTW-${year}-`;
+      let maxNum = 0;
+      [...db.permits, ...db.deletedPermits].forEach(item => {
+        if (item.id && item.id.startsWith(prefix)) {
+          const n = parseInt(item.id.slice(prefix.length), 10);
+          if (!isNaN(n) && n > maxNum) maxNum = n;
+        }
+      });
+      return `${prefix}${String(maxNum + 1).padStart(3, '0')}`;
+    }
+
+    async function submitPermitWizard() {
+      const w = state.wizard;
+      if (!w.agreed) {
+        showToast('Vui lòng tích chọn đồng ý Cam kết an toàn trước khi tiếp tục.', 'warning');
+        return;
+      }
+
+      if (supabaseClient) {
+        await DB.refreshFromCloud(true);
+      }
+
+      const newId = generateNextPermitId();
+      const newPermit = {
+        id: newId,
+        contractorId: w.contractorId,
+        contractorName: w.contractorName,
+        contractorSupervisor: w.contractorSupervisor,
+        contractorPhone: w.contractorPhone,
+        permitType: w.permitType,
+        startDate: w.startDate,
+        endDate: w.endDate,
+        startTime: w.startTime,
+        endTime: w.endTime,
+        department: w.department.trim(),
+        managerUsername: w.managerUsername,
+        managerName: w.managerName,
+        projectName: w.projectName.trim(),
+        workDescription: w.workDescription.trim(),
+        locationDetail: w.locationDetail.trim(),
+        factory: w.factory,
+        floor: w.floor || 'Tầng 1',
+        zoneId: w.zoneId,
+        zoneName: w.zoneName,
+        ppe: [...(w.ppe || [])],
+        safetyRequirements: [...w.safetyRequirements],
+        jsa: w.jsa.map(item => ({ ...item })),
+        workers: w.workers.map(wk => ({ name: wk.name.trim(), age: String(wk.age).trim(), idCard: wk.idCard.trim() })),
+        agreed: true,
+        status: 'PENDING_MANAGER',
+        createdAt: new Date().toISOString(),
+        managerApprovedAt: null,
+        ehsApprovedAt: null,
+        rejectReason: '',
+        archived: false
+      };
+
+      db.permits.unshift(newPermit);
+      await DB.upsertPermit(newPermit);
+
+      if (w.addAnother) {
+        const keepCtr = {
+          contractorId: w.contractorId,
+          contractorName: w.contractorName,
+          contractorSupervisor: w.contractorSupervisor,
+          contractorPhone: w.contractorPhone
+        };
+        state.wizard = { ...createEmptyWizard(), ...keepCtr, step: 2 };
+        applySafetyTemplateToWizard('GENERAL');
+        showToast(`Đã tạo giấy phép ${newId}! Tiếp tục đăng ký giấy phép mới.`, 'success');
+        renderMain();
+      } else {
+        state.wizard.lastCreatedId = newId;
+        state.wizard.step = 8;
+        showToast(`Đăng ký thành công mã giấy phép ${newId}!`, 'success');
+        renderMain();
+      }
+    }
+
+    function renderWizardStep8(mode) {
+      const w = state.wizard;
+      return `
+        <div class="text-center py-6 space-y-4">
+          <div class="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-3xl mx-auto shadow-inner">
+            <i class="fa-solid fa-circle-check"></i>
+          </div>
+          <h3 class="text-xl font-black text-navy">Giấy phép đã được tạo thành công!</h3>
+          <div class="inline-block px-4 py-1.5 rounded-xl bg-blue-50 border border-blue-200 font-mono font-extrabold text-eaton text-sm">
+            Mã Giấy phép: ${escapeHtml(w.lastCreatedId)}
+          </div>
+          <p class="text-sm text-slate-600 max-w-lg mx-auto leading-relaxed">
+            Giấy phép đã được tạo, vui lòng gửi thông báo tới <strong>Người quản lý dự án (${escapeHtml(w.managerName)})</strong> vào hệ thống xác nhận Giấy phép làm việc để chuyển tiếp bộ phận EHS phê duyệt.
+          </p>
+          <div class="flex flex-wrap items-center justify-center gap-3 pt-4">
+            ${mode === 'MANAGEMENT' ? `
+              <button onclick="state.mgmtTab = 'APPROVE'; state.wizard = createEmptyWizard(); renderMain();" class="px-5 py-2.5 rounded-xl bg-eaton hover:bg-blue-700 text-white text-sm font-bold shadow">
+                Về danh sách Phê duyệt
+              </button>
+            ` : `
+              <button onclick="navigateTo('HOME')" class="px-5 py-2.5 rounded-xl bg-navy hover:bg-slate-800 text-white text-sm font-bold shadow">
+                <i class="fa-solid fa-house mr-1.5"></i> Về Trang chủ
+              </button>
+            `}
+            <button onclick="const keep = { contractorId: state.wizard.contractorId, contractorName: state.wizard.contractorName, contractorSupervisor: state.wizard.contractorSupervisor, contractorPhone: state.wizard.contractorPhone }; state.wizard = { ...createEmptyWizard(), ...keep, step: 2 }; applySafetyTemplateToWizard('GENERAL'); renderMain();" class="px-5 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-eaton text-sm font-bold">
+              + Đăng ký thêm giấy phép
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    // =========================================================================
+    // 11. MANAGEMENT AUTH (ACCOUNT AS LIST + REGISTER) & DASHBOARD
+    // =========================================================================
+    function renderManagementAuth(container) {
+      if (state.mgmtAuthMode === 'register') {
+        container.innerHTML = `
+          <div class="max-w-md mx-auto bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-5">
+            <div class="text-center space-y-1">
+              <div class="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center text-xl mx-auto mb-2">
+                <i class="fa-solid fa-user-plus"></i>
+              </div>
+              <h2 class="text-xl font-black text-navy">Tạo tài khoản Người quản lý</h2>
+              <p class="text-xs text-slate-500">Tài khoản đăng ký mới sẽ được lưu và quản lý bởi bộ phận EHS.</p>
+            </div>
+
+            <div class="space-y-3.5">
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">Họ và tên *</label>
+                <input type="text" id="mgmt-reg-name" placeholder="VD: Nguyễn Minh Anh" class="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm outline-none focus:border-eaton" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">Bộ phận *</label>
+                <input type="text" id="mgmt-reg-dept" placeholder="VD: Facility & Maintenance" class="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm outline-none focus:border-eaton" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">Tên đăng nhập *</label>
+                <input type="text" id="mgmt-reg-user" placeholder="VD: anh.nguyen" class="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm outline-none focus:border-eaton" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">Mật khẩu *</label>
+                <input type="password" id="mgmt-reg-pass" placeholder="Nhập mật khẩu..." class="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm outline-none focus:border-eaton" />
+              </div>
+              <button onclick="handleManagerRegister()" class="w-full py-3 rounded-xl bg-eaton hover:bg-blue-700 text-white text-sm font-extrabold shadow transition">
+                Đăng ký tài khoản
+              </button>
+              <button onclick="state.mgmtAuthMode = 'login'; renderMain();" class="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">
+                Quay lại Đăng nhập
+              </button>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = `
+        <div class="max-w-md mx-auto bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-5">
+          <div class="text-center space-y-1">
+            <div class="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center text-xl mx-auto mb-2">
+              <i class="fa-solid fa-user-tie"></i>
+            </div>
+            <h2 class="text-xl font-black text-navy">Đăng nhập Người quản lý</h2>
+            <p class="text-xs text-slate-500">Chọn tài khoản quản lý của bạn trong danh sách và nhập mật khẩu.</p>
+          </div>
+
+          <div class="space-y-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 uppercase mb-1.5">Tài khoản Người quản lý</label>
+              <select id="mgmt-login-user" class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-eaton bg-white text-sm font-bold text-navy outline-none">
+                <option value="">-- Chọn tài khoản --</option>
+                ${db.managers.map(m => `
+                  <option value="${escapeHtml(m.username)}">${escapeHtml(m.fullName)} (${escapeHtml(m.username)}) — ${escapeHtml(m.department)}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 uppercase mb-1.5">Mật khẩu</label>
+              <input type="password" id="mgmt-login-pass" onkeydown="if(event.key==='Enter') handleManagerLogin()" placeholder="Nhập mật khẩu..." class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-eaton text-sm outline-none" />
+            </div>
+            <button onclick="handleManagerLogin()" class="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-extrabold shadow transition">
+              Đăng nhập hệ thống
+            </button>
+            <div class="text-center pt-1">
+              <button onclick="state.mgmtAuthMode = 'register'; renderMain();" class="text-xs font-bold text-eaton hover:underline">
+                Chưa có tài khoản? Tạo tài khoản mới
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function handleManagerLogin() {
+      const username = document.getElementById('mgmt-login-user')?.value;
+      const password = document.getElementById('mgmt-login-pass')?.value || '';
+      if (!username) { showToast('Vui lòng chọn tài khoản Người quản lý.', 'warning'); return; }
+      if (supabaseClient) await DB.refreshFromCloud(true);
+      const found = db.managers.find(m => m.username === username && m.password === password);
+      if (!found) { showToast('Mật khẩu không chính xác.', 'error'); return; }
+      state.currentManager = found;
+      state.mgmtTab = 'APPROVE';
+      state.mgmtSelectedContractor = null;
+      showToast(`Xin chào ${found.fullName}!`, 'success');
+      renderAll();
+    }
+
+    async function handleManagerRegister() {
+      const fullName = document.getElementById('mgmt-reg-name')?.value.trim();
+      const department = document.getElementById('mgmt-reg-dept')?.value.trim();
+      const username = document.getElementById('mgmt-reg-user')?.value.trim();
+      const password = document.getElementById('mgmt-reg-pass')?.value.trim();
+      if (!fullName || !department || !username || !password) {
+        showToast('Vui lòng điền đầy đủ các trường thông tin.', 'warning');
+        return;
+      }
+      if (supabaseClient) await DB.refreshFromCloud(true);
+      if (db.managers.some(m => m.username.toLowerCase() === username.toLowerCase())) {
+        showToast('Tên đăng nhập đã tồn tại.', 'error');
+        return;
+      }
+      db.managers.push({ username, password, fullName, department });
+      await DB.saveSetting('managers', db.managers);
+      state.mgmtAuthMode = 'login';
+      showToast('Đã tạo tài khoản Người quản lý thành công!', 'success');
+      renderMain();
+    }
+
+    function logoutManager() {
+      state.currentManager = null;
+      state.mgmtSelectedContractor = null;
+      renderAll();
+    }
+
+    function renderManagementDashboard(container) {
+      const mgr = state.currentManager;
+      const myPending = db.permits.filter(p => p.status === 'PENDING_MANAGER' && p.managerUsername === mgr.username);
+
+      container.innerHTML = `
+        <div class="space-y-5">
+          <div class="flex flex-wrap items-center gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
+            <button onclick="state.mgmtTab = 'APPROVE'; renderMain();" class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 ${state.mgmtTab === 'APPROVE' ? 'bg-amber-500 text-white shadow' : 'text-slate-600 hover:bg-slate-100'}">
+              <i class="fa-solid fa-clipboard-check"></i> Phê duyệt giấy phép
+              <span class="px-2 py-0.5 rounded-full text-[11px] ${state.mgmtTab === 'APPROVE' ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-800'}">${myPending.length}</span>
+            </button>
+            <button onclick="state.mgmtTab = 'CREATE'; state.wizard = createEmptyWizard(); applySafetyTemplateToWizard('GENERAL'); renderMain();" class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 ${state.mgmtTab === 'CREATE' ? 'bg-eaton text-white shadow' : 'text-slate-600 hover:bg-slate-100'}">
+              <i class="fa-solid fa-file-circle-plus"></i> Tạo giấy phép
+            </button>
+            <button onclick="state.mgmtTab = 'HISTORY'; renderMain();" class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 ${state.mgmtTab === 'HISTORY' ? 'bg-navy text-white shadow' : 'text-slate-600 hover:bg-slate-100'}">
+              <i class="fa-solid fa-clock-rotate-left"></i> Lịch sử giấy phép
+            </button>
+          </div>
+
+          <div id="mgmt-tab-content"></div>
+        </div>
+      `;
+
+      const tabContainer = document.getElementById('mgmt-tab-content');
+      if (state.mgmtTab === 'APPROVE') renderMgmtApproveTab(tabContainer, myPending);
+      else if (state.mgmtTab === 'CREATE') renderPermitWizardContainer(tabContainer, 'MANAGEMENT');
+      else renderMgmtHistoryTab(tabContainer);
+    }
+
+    function renderMgmtApproveTab(container, myPending) {
+      const grouped = {};
+      myPending.forEach(p => {
+        if (!grouped[p.contractorName]) grouped[p.contractorName] = [];
+        grouped[p.contractorName].push(p);
+      });
+      const contractorNames = Object.keys(grouped);
+      if (state.mgmtSelectedContractor && !grouped[state.mgmtSelectedContractor]) {
+        state.mgmtSelectedContractor = null;
+      }
+
+      container.innerHTML = `
+        <div class="space-y-4">
+          <div class="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center text-lg">
+                <i class="fa-solid fa-bell"></i>
+              </div>
+              <div>
+                <div class="text-sm font-extrabold text-amber-900">Bạn có ${myPending.length} giấy phép đang chờ xác nhận</div>
+                <div class="text-xs text-amber-700">Chỉ hiển thị các giấy phép được nhà thầu gửi đích danh tới <strong>${escapeHtml(state.currentManager.fullName)}</strong>.</div>
+              </div>
+            </div>
+          </div>
+
+          ${contractorNames.length === 0 ? `
+            <div class="bg-white rounded-3xl border border-slate-200 p-10 text-center text-slate-400">
+              <i class="fa-regular fa-circle-check text-4xl text-emerald-400 mb-2"></i>
+              <div class="text-sm font-bold text-slate-600">Tuyệt vời! Hiện không có giấy phép nào đang chờ bạn duyệt.</div>
+            </div>
+          ` : `
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              ${contractorNames.map(cName => {
+                const active = state.mgmtSelectedContractor === cName;
+                return `
+                  <button onclick="state.mgmtSelectedContractor = '${escapeHtml(cName).replace(/'/g, "\\'")}'; renderMain();" class="text-left p-4 rounded-2xl border-2 transition ${active ? 'border-amber-500 bg-amber-50/70 shadow' : 'border-slate-200 bg-white hover:border-amber-300'}">
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-extrabold text-navy">${escapeHtml(cName)}</span>
+                      <span class="px-2.5 py-1 rounded-full bg-amber-500 text-white text-xs font-extrabold">${grouped[cName].length} GP</span>
+                    </div>
+                    <div class="text-[11px] text-slate-500 mt-1">Bấm để xem danh sách giấy phép cần duyệt</div>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+
+            ${state.mgmtSelectedContractor ? `
+              <div class="bg-white rounded-2xl border border-slate-200 p-5 space-y-3 shadow-sm">
+                <div class="text-xs font-extrabold text-navy uppercase tracking-wide">
+                  Danh sách giấy phép của: <span class="text-eaton">${escapeHtml(state.mgmtSelectedContractor)}</span>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  ${grouped[state.mgmtSelectedContractor].map(p => `
+                    <div onclick="openApprovalModal('${escapeHtml(p.id)}', 'MANAGER')" class="p-4 rounded-2xl border-2 border-slate-200 hover:border-eaton hover:shadow-md bg-slate-50/50 cursor-pointer transition space-y-2">
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="font-mono text-xs font-extrabold text-eaton">${escapeHtml(p.id)}</span>
+                        <span class="text-[11px] font-bold px-2 py-0.5 rounded-lg bg-blue-100 text-eaton">${escapeHtml(getPermitTypeMeta(p.permitType).name)}</span>
+                      </div>
+                      <div class="text-sm font-extrabold text-navy">${escapeHtml(p.projectName)}</div>
+                      <div class="grid grid-cols-2 gap-1.5 text-xs text-slate-600 pt-1">
+                        <div><i class="fa-solid fa-location-dot text-red-500 mr-1"></i> ${escapeHtml(p.factory)} • ${escapeHtml(p.floor || 'Tầng 1')} — ${escapeHtml(p.zoneName)}</div>
+                        <div><i class="fa-solid fa-users text-slate-400 mr-1"></i> ${p.workers.length} người</div>
+                        <div class="col-span-2"><i class="fa-regular fa-calendar text-slate-400 mr-1"></i> ${formatDateVN(p.startDate)} → ${formatDateVN(p.endDate)} (${p.startTime} - ${p.endTime})</div>
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            ` : ''}
+          `}
+        </div>
+      `;
+    }
+
+    function renderMgmtHistoryTab(container) {
+      const mgr = state.currentManager;
+      let list = db.permits.filter(p => p.managerUsername === mgr.username);
+
+      const contractors = Array.from(new Set(list.map(p => p.contractorName))).sort();
+      const months = Array.from(new Set(list.map(p => (p.startDate || '').slice(0, 7)).filter(Boolean))).sort().reverse();
+
+      if (state.mgmtHistoryContractor !== 'ALL') {
+        list = list.filter(p => p.contractorName === state.mgmtHistoryContractor);
+      }
+      if (state.mgmtHistoryMonth !== 'ALL') {
+        list = list.filter(p => (p.startDate || '').startsWith(state.mgmtHistoryMonth));
+      }
+
+      if (state.mgmtHistorySort === 'DATE_DESC') list.sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''));
+      else if (state.mgmtHistorySort === 'DATE_ASC') list.sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+      else if (state.mgmtHistorySort === 'CONTRACTOR_ASC') list.sort((a, b) => a.contractorName.localeCompare(b.contractorName));
+      else if (state.mgmtHistorySort === 'CONTRACTOR_DESC') list.sort((a, b) => b.contractorName.localeCompare(a.contractorName));
+
+      container.innerHTML = `
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-base font-extrabold text-navy">Lịch sử Giấy phép quản lý</h3>
+            <div class="flex flex-wrap items-center gap-2">
+              <select onchange="state.mgmtHistoryMonth = this.value; renderMain();" class="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-navy outline-none">
+                <option value="ALL">Tất cả tháng</option>
+                ${months.map(m => `<option value="${m}" ${state.mgmtHistoryMonth === m ? 'selected' : ''}>Tháng ${m.split('-')[1]}/${m.split('-')[0]}</option>`).join('')}
+              </select>
+              <select onchange="state.mgmtHistoryContractor = this.value; renderMain();" class="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-navy outline-none">
+                <option value="ALL">Tất cả Nhà thầu</option>
+                ${contractors.map(c => `<option value="${escapeHtml(c)}" ${state.mgmtHistoryContractor === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+              </select>
+              <select onchange="state.mgmtHistorySort = this.value; renderMain();" class="px-3 py-2 rounded-xl border border-blue-200 bg-blue-50 text-xs font-bold text-eaton outline-none">
+                <option value="DATE_DESC" ${state.mgmtHistorySort === 'DATE_DESC' ? 'selected' : ''}>Sort: Ngày thi công (Mới nhất)</option>
+                <option value="DATE_ASC" ${state.mgmtHistorySort === 'DATE_ASC' ? 'selected' : ''}>Sort: Ngày thi công (Cũ nhất)</option>
+                <option value="CONTRACTOR_ASC" ${state.mgmtHistorySort === 'CONTRACTOR_ASC' ? 'selected' : ''}>Sort: Nhà thầu (A → Z)</option>
+                <option value="CONTRACTOR_DESC" ${state.mgmtHistorySort === 'CONTRACTOR_DESC' ? 'selected' : ''}>Sort: Nhà thầu (Z → A)</option>
+              </select>
+            </div>
+          </div>
+
+          ${list.length === 0 ? `
+            <div class="py-8 text-center text-xs text-slate-400">Không có giấy phép nào phù hợp bộ lọc.</div>
+          ` : `
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs">
+                <thead class="bg-slate-100 text-slate-600 uppercase">
+                  <tr>
+                    <th class="p-3 text-left">Mã GP</th>
+                    <th class="p-3 text-left">Dự án</th>
+                    <th class="p-3 text-left">Nhà thầu</th>
+                    <th class="p-3 text-left">Ngày thi công</th>
+                    <th class="p-3 text-left">Khu vực</th>
+                    <th class="p-3 text-left">Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  ${list.map(p => `
+                    <tr class="hover:bg-slate-50">
+                      <td class="p-3 font-mono font-bold text-eaton">${escapeHtml(p.id)}</td>
+                      <td class="p-3 font-bold text-navy">${escapeHtml(p.projectName)}</td>
+                      <td class="p-3 text-slate-700">${escapeHtml(p.contractorName)}</td>
+                      <td class="p-3 text-slate-700">${formatDateVN(p.startDate)} → ${formatDateVN(p.endDate)}</td>
+                      <td class="p-3 text-slate-600">${escapeHtml(p.factory)} • ${escapeHtml(p.floor || 'Tầng 1')} — ${escapeHtml(p.zoneName)}</td>
+                      <td class="p-3">${statusBadgeHTML(p.status)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+    }
+
+    // =========================================================================
+    // 12. APPROVAL MODAL (SHARED BY MANAGER & EHS)
+    // =========================================================================
+    function openApprovalModal(permitId, role) {
+      const p = db.permits.find(item => item.id === permitId);
+      if (!p) return;
+      const meta = getPermitTypeMeta(p.permitType);
+      const isMgr = role === 'MANAGER';
+
+      const noteText = isMgr
+        ? 'Bạn là người quản lý dự án, vui lòng xác nhận thông tin dự án trước khi chuyển tiếp bộ phận EHS.'
+        : 'Bạn là bộ phận EHS, vui lòng kiểm tra đầy đủ yêu cầu PPE, an toàn, JSA và khu vực thi công trước khi phê duyệt.';
+
+      document.getElementById('modal-root').innerHTML = `
+        <div class="no-print fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div class="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200">
+            <div class="sticky top-0 bg-navy text-white px-5 py-4 flex items-center justify-between rounded-t-3xl z-10">
+              <div>
+                <div class="text-xs font-bold text-sky-300 uppercase">${escapeHtml(meta.name)} • ${escapeHtml(p.id)}</div>
+                <h3 class="text-base font-extrabold">${escapeHtml(p.projectName)}</h3>
+              </div>
+              <button onclick="closeModal()" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+
+            <div class="p-5 space-y-4 text-xs sm:text-sm">
+              <div class="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 font-bold flex items-start gap-2.5">
+                <i class="fa-solid fa-circle-exclamation text-amber-600 text-base mt-0.5"></i>
+                <span>${noteText}</span>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs">
+                <div><span class="text-slate-500">Nhà thầu:</span> <strong class="text-navy">${escapeHtml(p.contractorName)}</strong></div>
+                <div><span class="text-slate-500">Phụ trách / SĐT:</span> <strong>${escapeHtml(p.contractorSupervisor)} — ${escapeHtml(p.contractorPhone)}</strong></div>
+                <div><span class="text-slate-500">Người quản lý:</span> <strong>${escapeHtml(p.managerName)} (${escapeHtml(p.department)})</strong></div>
+                <div><span class="text-slate-500">Thời gian:</span> <strong class="text-eaton">${formatDateVN(p.startDate)} → ${formatDateVN(p.endDate)} (${p.startTime} - ${p.endTime})</strong></div>
+                <div class="sm:col-span-2"><span class="text-slate-500">Khu vực:</span> <strong class="text-red-700">${escapeHtml(p.factory)} • ${escapeHtml(p.floor || 'Tầng 1')} — ${escapeHtml(p.zoneName)}</strong> (${escapeHtml(p.locationDetail)})</div>
+                <div class="sm:col-span-2"><span class="text-slate-500">Mô tả công việc:</span> ${escapeHtml(p.workDescription)}</div>
+              </div>
+
+              <div>
+                <div class="text-xs font-extrabold text-indigo-800 uppercase mb-1.5">Yêu cầu PPE bắt buộc:</div>
+                <div class="flex flex-wrap gap-1.5">
+                  ${(p.ppe || []).map(item => `<span class="px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-semibold">${escapeHtml(item)}</span>`).join('')}
+                </div>
+              </div>
+
+              <div>
+                <div class="text-xs font-extrabold text-navy uppercase mb-1.5">Danh sách nhân sự (${p.workers.length} người):</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs">
+                  ${p.workers.map((wk, i) => `
+                    <div class="px-3 py-2 rounded-xl bg-slate-50 border border-slate-200">
+                      <strong>${i + 1}. ${escapeHtml(wk.name)}</strong> (${escapeHtml(wk.age)} tuổi) — CCCD: <span class="font-mono">${escapeHtml(wk.idCard)}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">Ghi chú / Lý do từ chối (nếu Reject):</label>
+                <input type="text" id="approval-reject-reason" placeholder="Nhập lý do nếu từ chối giấy phép..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm outline-none focus:border-red-500" />
+              </div>
+
+              <div class="flex flex-wrap justify-end gap-2.5 pt-2 border-t border-slate-100">
+                <button onclick="closeModal()" class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-bold">Đóng</button>
+                <button onclick="processApproval('${escapeHtml(p.id)}', '${role}', false)" class="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs sm:text-sm font-extrabold shadow">
+                  <i class="fa-solid fa-xmark mr-1"></i> Reject (Từ chối)
+                </button>
+                <button onclick="processApproval('${escapeHtml(p.id)}', '${role}', true)" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-extrabold shadow">
+                  <i class="fa-solid fa-check mr-1"></i> ${isMgr ? 'Accept (Chuyển EHS)' : 'Approve (Phê duyệt)'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function processApproval(permitId, role, isApproved) {
+      const p = db.permits.find(item => item.id === permitId);
+      if (!p) return;
+      const reason = document.getElementById('approval-reject-reason')?.value.trim() || '';
+
+      if (role === 'MANAGER') {
+        if (isApproved) {
+          p.status = 'PENDING_EHS';
+          p.managerApprovedAt = new Date().toISOString();
+          showToast(`Đã xác nhận ${p.id} và chuyển sang bộ phận EHS!`, 'success');
+        } else {
+          p.status = 'REJECTED_MANAGER';
+          p.rejectReason = reason || 'Người quản lý từ chối xác nhận';
+          showToast(`Đã từ chối giấy phép ${p.id} (vẫn lưu lịch sử).`, 'info');
+        }
+      } else {
+        if (isApproved) {
+          p.status = 'APPROVED';
+          p.ehsApprovedAt = new Date().toISOString();
+          showToast(`EHS đã phê duyệt ${p.id}! Giấy phép đã chuyển sang Tổng hợp.`, 'success');
+        } else {
+          p.status = 'REJECTED_EHS';
+          p.rejectReason = reason || 'Bộ phận EHS không phê duyệt';
+          showToast(`EHS đã từ chối giấy phép ${p.id}.`, 'info');
+        }
+      }
+
+      await DB.upsertPermit(p);
+      closeModal();
+      renderMain();
+    }
+
+    // =========================================================================
+    // 13. EHS AUTH & DASHBOARD (4 TABS WITHOUT "SHEET")
+    // =========================================================================
+    function renderEhsAuth(container) {
+      container.innerHTML = `
+        <div class="max-w-md mx-auto bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-5">
+          <div class="text-center space-y-1">
+            <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl mx-auto mb-2">
+              <i class="fa-solid fa-shield-virus"></i>
+            </div>
+            <h2 class="text-xl font-black text-navy">Đăng nhập Bộ phận EHS</h2>
+            <p class="text-xs text-slate-500">Vui lòng nhập tài khoản quản trị EHS để truy cập hệ thống.</p>
+          </div>
+
+          <div class="space-y-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 uppercase mb-1.5">Tên đăng nhập</label>
+              <input type="text" id="ehs-login-user" placeholder="Nhập tên đăng nhập..." class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-emerald-600 text-sm outline-none" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 uppercase mb-1.5">Mật khẩu</label>
+              <input type="password" id="ehs-login-pass" onkeydown="if(event.key==='Enter') handleEhsLogin()" placeholder="Nhập mật khẩu..." class="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-emerald-600 text-sm outline-none" />
+            </div>
+            <button onclick="handleEhsLogin()" class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-extrabold shadow transition">
+              Đăng nhập EHS
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    async function handleEhsLogin() {
+      const u = document.getElementById('ehs-login-user')?.value.trim();
+      const p = document.getElementById('ehs-login-pass')?.value || '';
+      if (supabaseClient) await DB.refreshFromCloud(true);
+      if (u === db.ehsAccount.username && p === db.ehsAccount.password) {
+        state.ehsLoggedIn = true;
+        state.ehsTab = 'APPROVE';
+        showToast('Đăng nhập EHS thành công!', 'success');
+        renderAll();
+      } else {
+        showToast('Tên đăng nhập hoặc mật khẩu EHS không đúng.', 'error');
+      }
+    }
+
+    function logoutEhs() {
+      state.ehsLoggedIn = false;
+      state.ehsSelectedContractor = null;
+      renderAll();
+    }
+
+    function renderEhsDashboard(container) {
+      const pendingEhs = db.permits.filter(p => p.status === 'PENDING_EHS');
+      const approvedCount = db.permits.filter(p => p.status === 'APPROVED').length;
+
+      container.innerHTML = `
+        <div class="space-y-5">
+          <div class="flex flex-wrap items-center gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
+            <button onclick="state.ehsTab = 'APPROVE'; renderMain();" class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 ${state.ehsTab === 'APPROVE' ? 'bg-emerald-600 text-white shadow' : 'text-slate-600 hover:bg-slate-100'}">
+              <i class="fa-solid fa-stamp"></i> Phê duyệt giấy phép
+              <span class="px-2 py-0.5 rounded-full text-[11px] ${state.ehsTab === 'APPROVE' ? 'bg-white/25 text-white' : 'bg-sky-100 text-sky-800'}">${pendingEhs.length}</span>
+            </button>
+            <button onclick="state.ehsTab = 'SUMMARY'; renderMain();" class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 ${state.ehsTab === 'SUMMARY' ? 'bg-eaton text-white shadow' : 'text-slate-600 hover:bg-slate-100'}">
+              <i class="fa-solid fa-calendar-days"></i> Tổng hợp giấy phép
+              <span class="px-2 py-0.5 rounded-full text-[11px] ${state.ehsTab === 'SUMMARY' ? 'bg-white/25 text-white' : 'bg-emerald-100 text-emerald-800'}">${approvedCount}</span>
+            </button>
+            <button onclick="state.ehsTab = 'SAFETY'; renderMain();" class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 ${state.ehsTab === 'SAFETY' ? 'bg-amber-500 text-white shadow' : 'text-slate-600 hover:bg-slate-100'}">
+              <i class="fa-solid fa-shield-halved"></i> Set-up an toàn
+            </button>
+            <button onclick="state.ehsTab = 'MAP'; renderMain();" class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition flex items-center gap-2 ${state.ehsTab === 'MAP' ? 'bg-navy text-white shadow' : 'text-slate-600 hover:bg-slate-100'}">
+              <i class="fa-solid fa-map-location-dot"></i> Quản lý khu vực (Map)
+            </button>
+          </div>
+
+          <div id="ehs-tab-content"></div>
+        </div>
+      `;
+
+      const tabContainer = document.getElementById('ehs-tab-content');
+      if (state.ehsTab === 'APPROVE') renderEhsApproveTab(tabContainer, pendingEhs);
+      else if (state.ehsTab === 'SUMMARY') renderEhsSummaryTab(tabContainer);
+      else if (state.ehsTab === 'SAFETY') renderEhsSafetyTab(tabContainer);
+      else renderEhsMapTab(tabContainer);
+    }
+
+    function renderEhsApproveTab(container, pendingEhs) {
+      const grouped = {};
+      pendingEhs.forEach(p => {
+        if (!grouped[p.contractorName]) grouped[p.contractorName] = [];
+        grouped[p.contractorName].push(p);
+      });
+      const contractorNames = Object.keys(grouped);
+      if (state.ehsSelectedContractor && !grouped[state.ehsSelectedContractor]) {
+        state.ehsSelectedContractor = null;
+      }
+
+      container.innerHTML = `
+        <div class="space-y-4">
+          <div class="p-4 rounded-2xl bg-sky-50 border border-sky-200 flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-eaton text-white flex items-center justify-center text-lg">
+              <i class="fa-solid fa-file-signature"></i>
+            </div>
+            <div>
+              <div class="text-sm font-extrabold text-navy">Có ${pendingEhs.length} giấy phép đã qua Quản lý xác nhận, đang chờ EHS phê duyệt</div>
+              <div class="text-xs text-slate-600">Chọn từng nhà thầu bên dưới để xem chi tiết và phê duyệt chuyển sang Tổng hợp.</div>
+            </div>
+          </div>
+
+          ${contractorNames.length === 0 ? `
+            <div class="bg-white rounded-3xl border border-slate-200 p-10 text-center text-slate-400">
+              <i class="fa-regular fa-circle-check text-4xl text-emerald-400 mb-2"></i>
+              <div class="text-sm font-bold text-slate-600">Hiện không có giấy phép nào đang chờ EHS phê duyệt.</div>
+            </div>
+          ` : `
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              ${contractorNames.map(cName => {
+                const active = state.ehsSelectedContractor === cName;
+                return `
+                  <button onclick="state.ehsSelectedContractor = '${escapeHtml(cName).replace(/'/g, "\\'")}'; renderMain();" class="text-left p-4 rounded-2xl border-2 transition ${active ? 'border-emerald-600 bg-emerald-50/70 shadow' : 'border-slate-200 bg-white hover:border-emerald-300'}">
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-extrabold text-navy">${escapeHtml(cName)}</span>
+                      <span class="px-2.5 py-1 rounded-full bg-emerald-600 text-white text-xs font-extrabold">${grouped[cName].length} GP</span>
+                    </div>
+                    <div class="text-[11px] text-slate-500 mt-1">Bấm để mở danh sách phê duyệt</div>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+
+            ${state.ehsSelectedContractor ? `
+              <div class="bg-white rounded-2xl border border-slate-200 p-5 space-y-3 shadow-sm">
+                <div class="text-xs font-extrabold text-navy uppercase">Giấy phép chờ EHS duyệt — <span class="text-emerald-700">${escapeHtml(state.ehsSelectedContractor)}</span></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  ${grouped[state.ehsSelectedContractor].map(p => `
+                    <div onclick="openApprovalModal('${escapeHtml(p.id)}', 'EHS')" class="p-4 rounded-2xl border-2 border-slate-200 hover:border-emerald-600 hover:shadow-md bg-slate-50/50 cursor-pointer transition space-y-2">
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="font-mono text-xs font-extrabold text-eaton">${escapeHtml(p.id)}</span>
+                        <span class="text-[11px] font-bold px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800">${escapeHtml(getPermitTypeMeta(p.permitType).name)}</span>
+                      </div>
+                      <div class="text-sm font-extrabold text-navy">${escapeHtml(p.projectName)}</div>
+                      <div class="grid grid-cols-2 gap-1.5 text-xs text-slate-600 pt-1">
+                        <div><i class="fa-solid fa-user-tie text-amber-500 mr-1"></i> ${escapeHtml(p.managerName)}</div>
+                        <div><i class="fa-solid fa-users text-slate-400 mr-1"></i> ${p.workers.length} người</div>
+                        <div class="col-span-2"><i class="fa-solid fa-location-dot text-red-500 mr-1"></i> ${escapeHtml(p.factory)} • ${escapeHtml(p.floor || 'Tầng 1')} — ${escapeHtml(p.zoneName)}</div>
+                        <div class="col-span-2"><i class="fa-regular fa-calendar text-slate-400 mr-1"></i> ${formatDateVN(p.startDate)} → ${formatDateVN(p.endDate)} (${p.startTime} - ${p.endTime})</div>
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            ` : ''}
+          `}
+        </div>
+      `;
+    }
+
+    function renderEhsSummaryTab(container) {
+      const year = state.ehsCalYear;
+      const month = state.ehsCalMonth;
+      const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+      const approvedPermits = db.permits.filter(p => p.status === 'APPROVED');
+
+      const firstDay = new Date(year, month, 1);
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const startWeekday = (firstDay.getDay() + 6) % 7;
+
+      const permitCoversDate = (p, iso) => p.startDate <= iso && p.endDate >= iso;
+      const monthStartISO = `${monthStr}-01`;
+      const monthEndISO = `${monthStr}-${String(daysInMonth).padStart(2, '0')}`;
+      const permitInMonth = (p) => p.startDate <= monthEndISO && p.endDate >= monthStartISO;
+
+      const displayedPermits = state.ehsSelectedDate
+        ? approvedPermits.filter(p => permitCoversDate(p, state.ehsSelectedDate))
+        : approvedPermits.filter(p => permitInMonth(p));
+
+      let calCells = '';
+      for (let i = 0; i < startWeekday; i++) {
+        calCells += `<div class="h-11 rounded-xl bg-slate-50/50"></div>`;
+      }
+      for (let day = 1; day <= daysInMonth; day++) {
+        const iso = `${monthStr}-${String(day).padStart(2, '0')}`;
+        const dayCount = approvedPermits.filter(p => permitCoversDate(p, iso)).length;
+        const isSelected = state.ehsSelectedDate === iso;
+        calCells += `
+          <button onclick="state.ehsSelectedDate = '${iso}'; renderMain();" class="h-11 rounded-xl border text-xs font-bold flex flex-col items-center justify-center relative transition ${isSelected ? 'bg-eaton text-white border-eaton shadow' : dayCount > 0 ? 'bg-emerald-50 border-emerald-200 text-navy hover:bg-emerald-100' : 'bg-white border-slate-100 text-slate-600 hover:bg-slate-50'}">
+            <span>${day}</span>
+            ${dayCount > 0 ? `<span class="w-1.5 h-1.5 rounded-full mt-0.5 ${isSelected ? 'bg-yellow-300' : 'bg-emerald-500'}"></span>` : ''}
+          </button>
+        `;
+      }
+
+      container.innerHTML = `
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <div class="lg:col-span-4 space-y-4">
+            <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+              <div class="flex items-center justify-between">
+                <button onclick="changeEhsCalendarMonth(-1)" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center">
+                  <i class="fa-solid fa-chevron-left text-xs"></i>
+                </button>
+                <div class="text-sm font-extrabold text-navy">Tháng ${month + 1} / ${year}</div>
+                <button onclick="changeEhsCalendarMonth(1)" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center">
+                  <i class="fa-solid fa-chevron-right text-xs"></i>
+                </button>
+              </div>
+
+              <div class="grid grid-cols-7 gap-1 text-center text-[11px] font-bold text-slate-400">
+                <div>T2</div><div>T3</div><div>T4</div><div>T5</div><div>T6</div><div>T7</div><div class="text-red-400">CN</div>
+              </div>
+              <div class="grid grid-cols-7 gap-1">${calCells}</div>
+
+              <div class="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                <span class="text-slate-500 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span> Ngày có giấy phép</span>
+                ${state.ehsSelectedDate ? `
+                  <button onclick="state.ehsSelectedDate = null; renderMain();" class="font-extrabold text-eaton hover:underline">Xem cả tháng ${month + 1}</button>
+                ` : `<span class="font-bold text-eaton">Đang xem cả tháng ${month + 1}</span>`}
+              </div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-2.5">
+              <div class="flex items-center justify-between">
+                <h4 class="text-xs font-extrabold text-red-700 uppercase flex items-center gap-1.5">
+                  <i class="fa-solid fa-trash-can-arrow-up"></i> Giấy phép đã xóa (${db.deletedPermits.length})
+                </h4>
+              </div>
+              ${db.deletedPermits.length === 0 ? `
+                <div class="text-xs text-slate-400 italic">Chưa có giấy phép nào bị xóa.</div>
+              ` : `
+                <div class="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  ${db.deletedPermits.map(d => `
+                    <div class="p-2.5 rounded-xl bg-red-50/70 border border-red-200 text-[11px] space-y-0.5">
+                      <div class="flex justify-between font-bold text-navy">
+                        <span class="font-mono text-red-700">${escapeHtml(d.id)}</span>
+                        <span class="text-slate-400">${formatDateTimeVN(d.deletedAt)}</span>
+                      </div>
+                      <div class="font-semibold text-slate-700">${escapeHtml(d.projectName)}</div>
+                      <div class="text-slate-500">${escapeHtml(d.contractorName)}</div>
+                      <div class="text-red-700 font-semibold">Lý do: ${escapeHtml(d.deleteReason)}</div>
+                    </div>
+                  `).join('')}
+                </div>
+              `}
+            </div>
+          </div>
+
+          <div class="lg:col-span-8 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <h3 class="text-base font-extrabold text-navy">
+                  ${state.ehsSelectedDate ? `Giấy phép ngày ${formatDateVN(state.ehsSelectedDate)}` : `Tất cả Giấy phép trong Tháng ${month + 1}/${year}`}
+                </h3>
+                <p class="text-xs text-slate-500">Bấm vào từng dòng hoặc nút In để xem trọn bộ 4 tờ A4 có đóng dấu đỏ chéo.</p>
+              </div>
+              <span class="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-extrabold">${displayedPermits.length} giấy phép</span>
+            </div>
+
+            ${displayedPermits.length === 0 ? `
+              <div class="py-12 text-center text-slate-400 text-xs">
+                <i class="fa-regular fa-folder-open text-3xl mb-2 block text-slate-300"></i>
+                Không có giấy phép đã duyệt nào trong khoảng thời gian này.
+              </div>
+            ` : `
+              <div class="space-y-3">
+                ${displayedPermits.map(p => `
+                  <div class="p-4 rounded-2xl border border-slate-200 hover:border-eaton bg-slate-50/40 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div onclick="openPrintPermitModal('${escapeHtml(p.id)}')" class="flex-1 cursor-pointer space-y-1">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class="font-mono text-xs font-extrabold text-eaton">${escapeHtml(p.id)}</span>
+                        <span class="px-2 py-0.5 rounded-md bg-blue-50 text-eaton text-[11px] font-bold">${escapeHtml(getPermitTypeMeta(p.permitType).name)}</span>
+                        ${p.archived ? '<span class="px-2 py-0.5 rounded-md bg-slate-200 text-slate-600 text-[10px] font-bold">Đã sao lưu ZIP</span>' : ''}
+                      </div>
+                      <div class="text-sm font-extrabold text-navy">${escapeHtml(p.projectName)}</div>
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600 pt-0.5">
+                        <div><strong>Nhà thầu:</strong> ${escapeHtml(p.contractorName)}</div>
+                        <div><strong>Khu vực:</strong> ${escapeHtml(p.factory)} • ${escapeHtml(p.floor || 'Tầng 1')} — ${escapeHtml(p.zoneName)}</div>
+                        <div><strong>Ngày thi công:</strong> ${formatDateVN(p.startDate)} → ${formatDateVN(p.endDate)}</div>
+                        <div><strong>Ngày đăng ký:</strong> ${formatDateTimeVN(p.createdAt)} • <strong>${p.workers.length} người</strong></div>
+                      </div>
+                    </div>
+                    <div class="flex sm:flex-col gap-2 shrink-0">
+                      <button onclick="openPrintPermitModal('${escapeHtml(p.id)}')" class="flex-1 sm:flex-none px-3.5 py-2 rounded-xl bg-eaton hover:bg-blue-700 text-white text-xs font-bold shadow-sm flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-print"></i> Xem / In 4 tờ A4
+                      </button>
+                      <button onclick="openDeletePermitModal('${escapeHtml(p.id)}')" class="px-3.5 py-2 rounded-xl bg-red-50 hover:bg-red-600 text-red-600 hover:text-white border border-red-200 text-xs font-bold transition flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-trash-can"></i> Xóa
+                      </button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            `}
+          </div>
+        </div>
+      `;
+    }
+
+    function changeEhsCalendarMonth(delta) {
+      let m = state.ehsCalMonth + delta;
+      let y = state.ehsCalYear;
+      if (m < 0) { m = 11; y--; }
+      if (m > 11) { m = 0; y++; }
+      state.ehsCalMonth = m;
+      state.ehsCalYear = y;
+      state.ehsSelectedDate = null;
+      renderMain();
+    }
+
+    function openDeletePermitModal(permitId) {
+      const p = db.permits.find(item => item.id === permitId);
+      if (!p) return;
+
+      document.getElementById('modal-root').innerHTML = `
+        <div class="no-print fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div class="flex items-center gap-3 text-red-600">
+              <div class="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center text-lg">
+                <i class="fa-solid fa-trash-can"></i>
+              </div>
+              <div>
+                <h3 class="text-base font-extrabold text-navy">Xóa Giấy phép ${escapeHtml(p.id)}</h3>
+                <p class="text-xs text-slate-500">Bắt buộc ghi rõ lý do xóa để lưu lịch sử kiểm tra.</p>
+              </div>
+            </div>
+
+            <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-0.5">
+              <div class="font-bold text-navy">${escapeHtml(p.projectName)}</div>
+              <div class="text-slate-500">${escapeHtml(p.contractorName)}</div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Lý do xóa giấy phép *</label>
+              <textarea id="delete-permit-reason" rows="3" placeholder="VD: Nhà thầu dời lịch thi công, sai thông tin khu vực..." class="w-full px-3.5 py-2.5 rounded-xl border-2 border-slate-200 focus:border-red-500 text-xs sm:text-sm outline-none"></textarea>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-1">
+              <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">Hủy</button>
+              <button onclick="confirmDeletePermit('${escapeHtml(p.id)}')" class="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold shadow">Xác nhận Xóa</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function confirmDeletePermit(permitId) {
+      const reason = document.getElementById('delete-permit-reason')?.value.trim();
+      if (!reason) {
+        showToast('Vui lòng nhập lý do xóa giấy phép.', 'warning');
+        return;
+      }
+      const idx = db.permits.findIndex(item => item.id === permitId);
+      if (idx >= 0) {
+        const [removed] = db.permits.splice(idx, 1);
+        const deletedRecord = {
+          id: removed.id,
+          projectName: removed.projectName,
+          contractorName: removed.contractorName,
+          startDate: removed.startDate,
+          deleteReason: reason,
+          deletedBy: db.ehsAccount.username,
+          deletedAt: new Date().toISOString()
+        };
+        db.deletedPermits.unshift(deletedRecord);
+        await DB.deletePermit(removed.id, deletedRecord);
+        closeModal();
+        showToast(`Đã xóa giấy phép ${permitId} và lưu lịch sử.`, 'info');
+        renderMain();
+      }
+    }
+
+    function renderEhsSafetyTab(container) {
+      const code = state.ehsSafetyType;
+      const tpl = db.safetyTemplates[code] || createDefaultSafetyTemplates()[code];
+
+      container.innerHTML = `
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 class="text-base font-extrabold text-navy">Set-up Yêu cầu An toàn, PPE &amp; JSA theo Loại Giấy phép</h3>
+              <p class="text-xs text-slate-500">Thay đổi tại đây sẽ tự động áp dụng khi Nhà thầu hoặc Quản lý đăng ký giấy phép mới.</p>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            ${PERMIT_TYPES.map(pt => `
+              <button onclick="state.ehsSafetyType = '${pt.code}'; renderMain();" class="px-3.5 py-2 rounded-xl text-xs font-extrabold border-2 transition ${code === pt.code ? 'bg-amber-500 text-white border-amber-500 shadow-sm' : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-300'}">
+                <i class="fa-solid ${pt.icon} mr-1"></i> ${escapeHtml(pt.name)}
+              </button>
+            `).join('')}
+          </div>
+
+          <div class="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-200 space-y-3">
+            <div class="text-xs font-extrabold text-indigo-900 uppercase">1. Danh mục PPE mặc định</div>
+            <div class="space-y-2">
+              ${(tpl.ppe || []).map((item, idx) => `
+                <div class="flex gap-2">
+                  <input type="text" value="${escapeHtml(item)}" oninput="db.safetyTemplates['${code}'].ppe[${idx}] = this.value" class="flex-1 px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs outline-none focus:border-indigo-500" />
+                  <button onclick="db.safetyTemplates['${code}'].ppe.splice(${idx}, 1); saveSafetyTemplatesNow();" class="px-2.5 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 text-xs"><i class="fa-solid fa-trash-can"></i></button>
+                </div>
+              `).join('')}
+            </div>
+            <button onclick="db.safetyTemplates['${code}'].ppe.push('Yêu cầu PPE mới...'); saveSafetyTemplatesNow();" class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold">+ Thêm PPE</button>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-amber-50/50 border border-amber-200 space-y-3">
+            <div class="text-xs font-extrabold text-amber-900 uppercase">2. Các Yêu cầu An toàn mặc định</div>
+            <div class="space-y-2">
+              ${(tpl.safety || []).map((item, idx) => `
+                <div class="flex gap-2">
+                  <input type="text" value="${escapeHtml(item)}" oninput="db.safetyTemplates['${code}'].safety[${idx}] = this.value" class="flex-1 px-3 py-2 rounded-xl border border-amber-200 bg-white text-xs outline-none focus:border-amber-500" />
+                  <button onclick="db.safetyTemplates['${code}'].safety.splice(${idx}, 1); saveSafetyTemplatesNow();" class="px-2.5 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 text-xs"><i class="fa-solid fa-trash-can"></i></button>
+                </div>
+              `).join('')}
+            </div>
+            <button onclick="db.safetyTemplates['${code}'].safety.push('Yêu cầu an toàn mới...'); saveSafetyTemplatesNow();" class="px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-bold">+ Thêm yêu cầu an toàn</button>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="text-xs font-extrabold text-navy uppercase">3. Bảng Đánh giá Rủi ro (JSA) mặc định</div>
+              <button onclick="db.safetyTemplates['${code}'].jsa.push({ step: '', hazard: '', control: '' }); saveSafetyTemplatesNow();" class="px-3 py-1.5 rounded-lg bg-eaton text-white text-xs font-bold">+ Thêm dòng JSA</button>
+            </div>
+            <div class="space-y-2">
+              ${(tpl.jsa || []).map((row, idx) => `
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center bg-white p-2.5 rounded-xl border border-slate-200">
+                  <input type="text" value="${escapeHtml(row.step)}" oninput="db.safetyTemplates['${code}'].jsa[${idx}].step = this.value" placeholder="Bước công việc" class="sm:col-span-4 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs outline-none" />
+                  <input type="text" value="${escapeHtml(row.hazard)}" oninput="db.safetyTemplates['${code}'].jsa[${idx}].hazard = this.value" placeholder="Mối nguy" class="sm:col-span-3 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs outline-none" />
+                  <input type="text" value="${escapeHtml(row.control)}" oninput="db.safetyTemplates['${code}'].jsa[${idx}].control = this.value" placeholder="Biện pháp kiểm soát" class="sm:col-span-4 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs outline-none" />
+                  <button onclick="db.safetyTemplates['${code}'].jsa.splice(${idx}, 1); saveSafetyTemplatesNow();" class="sm:col-span-1 py-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 text-xs"><i class="fa-solid fa-trash-can"></i></button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="flex justify-end">
+            <button onclick="saveSafetyTemplatesNow(true)" class="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-extrabold shadow">
+              <i class="fa-solid fa-floppy-disk mr-1.5"></i> Lưu cấu hình
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    async function saveSafetyTemplatesNow(notify = false) {
+      await DB.saveSetting('safetyTemplates', db.safetyTemplates);
+      if (notify) showToast('Đã lưu cấu hình an toàn lên hệ thống!', 'success');
+      renderMain();
+    }
+
+    function renderEhsMapTab(container) {
+      const f = state.ehsMapFactory;
+      const fl = state.ehsMapFloor;
+
+      container.innerHTML = `
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-5">
+          <div>
+            <h3 class="font-extrabold text-navy text-base">Quản lý Khu vực Bản đồ (Nhà máy — Tầng — Khu vực)</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Thiết lập sơ đồ dạng ô trực quan cho từng tầng; tự động đồng bộ sang biểu mẫu của Nhà thầu và bản in A4.</p>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-blue-50/60 border border-blue-200 space-y-3">
+            <div class="text-xs font-extrabold text-navy uppercase flex items-center gap-1.5">
+              <i class="fa-solid fa-square-plus text-eaton"></i> Set-up Khu vực mới
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+              <div class="sm:col-span-3">
+                <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nhà máy *</label>
+                <select id="map-new-factory" onchange="state.ehsMapFactory = this.value; renderMain();" class="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-bold text-navy outline-none focus:border-eaton">
+                  ${FACTORY_LIST.map(fac => `<option value="${fac}" ${f === fac ? 'selected' : ''}>Nhà máy ${fac}</option>`).join('')}
+                </select>
+              </div>
+              <div class="sm:col-span-3">
+                <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">Tầng *</label>
+                <select id="map-new-floor" onchange="state.ehsMapFloor = this.value; renderMain();" class="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-bold text-navy outline-none focus:border-eaton">
+                  ${FLOOR_LIST.map(floor => `<option value="${escapeHtml(floor)}" ${fl === floor ? 'selected' : ''}>${escapeHtml(floor)}</option>`).join('')}
+                </select>
+              </div>
+              <div class="sm:col-span-4">
+                <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">Tên Khu vực *</label>
+                <input type="text" id="map-new-name" onkeydown="if(event.key==='Enter') addEhsMapZone()" placeholder="VD: Khu Lắp ráp Line 4..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm outline-none focus:border-eaton" />
+              </div>
+              <div class="sm:col-span-2">
+                <button onclick="addEhsMapZone()" class="w-full py-2.5 rounded-xl bg-eaton hover:bg-blue-700 text-white text-xs sm:text-sm font-extrabold shadow transition">
+                  + Thêm ô
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <div class="flex flex-wrap gap-1.5">
+              ${FACTORY_LIST.map(fac => `
+                <button onclick="state.ehsMapFactory = '${fac}'; renderMain();" class="px-4 py-2 rounded-xl text-xs font-extrabold border-2 transition ${f === fac ? 'bg-eaton text-white border-eaton shadow-sm' : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-300'}">
+                  Nhà máy ${fac}
+                </button>
+              `).join('')}
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              ${FLOOR_LIST.map(floor => {
+                const cnt = (db.zones[f] || []).filter(z => (z.floor || 'Tầng 1') === floor).length;
+                return `
+                  <button onclick="state.ehsMapFloor = '${escapeHtml(floor)}'; renderMain();" class="px-3.5 py-1.5 rounded-xl text-xs font-bold border transition ${fl === floor ? 'bg-navy text-white border-navy' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}">
+                    ${escapeHtml(floor)} (${cnt})
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          ${renderZoneGridMap(f, fl, '', false, true)}
+        </div>
+      `;
+    }
+
+    async function addEhsMapZone() {
+      const f = document.getElementById('map-new-factory')?.value || state.ehsMapFactory;
+      const fl = document.getElementById('map-new-floor')?.value || state.ehsMapFloor;
+      const name = document.getElementById('map-new-name')?.value.trim();
+      if (!name) { showToast('Vui lòng nhập Tên khu vực.', 'warning'); return; }
+
+      if (!Array.isArray(db.zones[f])) db.zones[f] = [];
+      const floorCode = fl === 'Tầng mái' ? 'TM' : fl === 'Outside' ? 'OUT' : 'T' + fl.replace(/\D/g, '');
+      const sameFloorCount = db.zones[f].filter(z => (z.floor || 'Tầng 1') === fl).length + 1;
+      const id = `${f}-${floorCode}-${String(sameFloorCount).padStart(2, '0')}`;
+
+      db.zones[f].push({ id, floor: fl, name });
+      await DB.saveSetting('zones', db.zones);
+      state.ehsMapFactory = f;
+      state.ehsMapFloor = fl;
+      showToast(`Đã thêm ô khu vực ${id} (${name})!`, 'success');
+      renderMain();
+    }
+
+    async function deleteEhsMapZone(factoryCode, zoneId) {
+      const list = db.zones[factoryCode] || [];
+      const idx = list.findIndex(z => z.id === zoneId);
+      if (idx >= 0) {
+        list.splice(idx, 1);
+        await DB.saveSetting('zones', db.zones);
+        showToast(`Đã xóa khu vực ${zoneId}.`, 'info');
+        renderMain();
+      }
+    }
+
+    // =========================================================================
+    // 14. EHS ADMIN MODAL (ĐỔI MẬT KHẨU + THÊM CONTRACTOR + THÊM NGƯỜI QUẢN LÝ)
+    // =========================================================================
+    function openEhsAdminModal(activeTab = 'PASSWORD') {
+      let bodyHtml = '';
+
+      if (activeTab === 'PASSWORD') {
+        bodyHtml = `
+          <div class="space-y-3">
+            <div class="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <div class="text-xs font-extrabold text-emerald-900">Tài khoản EHS (${escapeHtml(db.ehsAccount.username)})</div>
+                <div class="text-[11px] text-emerald-700">Mật khẩu quản trị hệ thống</div>
+              </div>
+              <div class="flex gap-2">
+                <input type="text" id="pw-ehs-new" placeholder="Mật khẩu mới..." class="px-3 py-1.5 rounded-xl border border-emerald-300 bg-white text-xs outline-none" />
+                <button onclick="updateEhsPassword()" class="px-3.5 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold">Đổi MK</button>
+              </div>
+            </div>
+
+            <div class="text-xs font-extrabold text-navy uppercase pt-1">Danh sách tài khoản Người quản lý (${db.managers.length})</div>
+            <div class="space-y-2 max-h-64 overflow-y-auto pr-1">
+              ${db.managers.map((m, idx) => `
+                <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <div class="text-xs font-extrabold text-navy">${escapeHtml(m.fullName)} <span class="font-mono text-eaton">(${escapeHtml(m.username)})</span></div>
+                    <div class="text-[11px] text-slate-500">${escapeHtml(m.department)}</div>
+                  </div>
+                  <div class="flex gap-1.5">
+                    <input type="text" id="pw-mgr-${idx}" placeholder="MK mới..." class="w-28 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs outline-none" />
+                    <button onclick="updateManagerPassword(${idx})" class="px-3 py-1.5 rounded-lg bg-navy text-white text-xs font-bold">Đổi</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      } else if (activeTab === 'CONTRACTOR') {
+        bodyHtml = `
+          <div class="space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3.5 rounded-2xl bg-blue-50/70 border border-blue-200">
+              <input type="text" id="new-ctr-name" placeholder="Tên đơn vị nhà thầu *" class="sm:col-span-3 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs outline-none" />
+              <input type="text" id="new-ctr-sup" placeholder="Người phụ trách *" class="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs outline-none" />
+              <input type="text" id="new-ctr-phone" placeholder="Số điện thoại *" class="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs outline-none" />
+              <button onclick="addNewContractor()" class="py-2 rounded-xl bg-eaton hover:bg-blue-700 text-white text-xs font-extrabold">+ Thêm Contractor</button>
+            </div>
+
+            <div class="space-y-2 max-h-64 overflow-y-auto pr-1">
+              ${db.contractors.map((c, idx) => `
+                <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                  <div class="text-xs">
+                    <div class="font-extrabold text-navy">${escapeHtml(c.name)} <span class="font-mono text-eaton">(${escapeHtml(c.id)})</span></div>
+                    <div class="text-slate-500">${escapeHtml(c.supervisor)} — ${escapeHtml(c.phone)}</div>
+                  </div>
+                  <button onclick="deleteContractorByIndex(${idx})" class="p-2 rounded-lg text-red-500 hover:bg-red-50"><i class="fa-solid fa-trash-can"></i></button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      } else {
+        bodyHtml = `
+          <div class="space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200">
+              <input type="text" id="new-mgr-name" placeholder="Họ tên Người quản lý *" class="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs outline-none" />
+              <input type="text" id="new-mgr-dept" placeholder="Bộ phận quản lý *" class="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs outline-none" />
+              <input type="text" id="new-mgr-user" placeholder="Tên đăng nhập *" class="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs outline-none" />
+              <input type="text" id="new-mgr-pass" placeholder="Mật khẩu *" class="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs outline-none" />
+              <button onclick="addNewManagerFromEhs()" class="sm:col-span-2 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold">+ Thêm Người quản lý</button>
+            </div>
+
+            <div class="space-y-2 max-h-60 overflow-y-auto pr-1">
+              ${db.managers.map((m, idx) => `
+                <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                  <div class="text-xs">
+                    <div class="font-extrabold text-navy">${escapeHtml(m.fullName)} <span class="font-mono text-eaton">(${escapeHtml(m.username)})</span></div>
+                    <div class="text-slate-500">${escapeHtml(m.department)}</div>
+                  </div>
+                  <button onclick="deleteManagerByIndex(${idx})" class="p-2 rounded-lg text-red-500 hover:bg-red-50"><i class="fa-solid fa-trash-can"></i></button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+
+      document.getElementById('modal-root').innerHTML = `
+        <div class="no-print fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div class="bg-white rounded-3xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden">
+            <div class="bg-navy text-white px-5 py-4 flex items-center justify-between">
+              <h3 class="text-sm sm:text-base font-extrabold">Quản lý Tài khoản &amp; Danh mục</h3>
+              <button onclick="closeModal()" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="p-5 space-y-4">
+              <div class="grid grid-cols-3 gap-2">
+                <button onclick="openEhsAdminModal('PASSWORD')" class="py-2 rounded-xl text-xs font-extrabold border-2 transition ${activeTab === 'PASSWORD' ? 'bg-navy text-white border-navy' : 'bg-slate-50 text-slate-600 border-slate-200'}">Đổi mật khẩu</button>
+                <button onclick="openEhsAdminModal('CONTRACTOR')" class="py-2 rounded-xl text-xs font-extrabold border-2 transition ${activeTab === 'CONTRACTOR' ? 'bg-eaton text-white border-eaton' : 'bg-slate-50 text-slate-600 border-slate-200'}">Thêm Contractor</button>
+                <button onclick="openEhsAdminModal('MANAGER')" class="py-2 rounded-xl text-xs font-extrabold border-2 transition ${activeTab === 'MANAGER' ? 'bg-amber-500 text-white border-amber-500' : 'bg-slate-50 text-slate-600 border-slate-200'}">Thêm Quản lý</button>
+              </div>
+              ${bodyHtml}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function updateEhsPassword() {
+      const val = document.getElementById('pw-ehs-new')?.value.trim();
+      if (!val) { showToast('Vui lòng nhập mật khẩu mới.', 'warning'); return; }
+      db.ehsAccount.password = val;
+      await DB.saveSetting('ehsAccount', db.ehsAccount);
+      showToast('Đã cập nhật mật khẩu EHS!', 'success');
+      openEhsAdminModal('PASSWORD');
+    }
+
+    async function updateManagerPassword(idx) {
+      const val = document.getElementById(`pw-mgr-${idx}`)?.value.trim();
+      if (!val) { showToast('Vui lòng nhập mật khẩu mới.', 'warning'); return; }
+      db.managers[idx].password = val;
+      await DB.saveSetting('managers', db.managers);
+      showToast(`Đã đổi mật khẩu cho ${db.managers[idx].fullName}!`, 'success');
+      openEhsAdminModal('PASSWORD');
+    }
+
+    async function addNewContractor() {
+      const name = document.getElementById('new-ctr-name')?.value.trim();
+      const supervisor = document.getElementById('new-ctr-sup')?.value.trim();
+      const phone = document.getElementById('new-ctr-phone')?.value.trim();
+      if (!name || !supervisor || !phone) { showToast('Vui lòng điền đủ thông tin nhà thầu.', 'warning'); return; }
+      const id = 'CTR-' + String(db.contractors.length + 1).padStart(2, '0');
+      db.contractors.push({ id, name, supervisor, phone });
+      await DB.saveSetting('contractors', db.contractors);
+      showToast(`Đã thêm nhà thầu ${name}!`, 'success');
+      openEhsAdminModal('CONTRACTOR');
+    }
+
+    async function deleteContractorByIndex(idx) {
+      db.contractors.splice(idx, 1);
+      await DB.saveSetting('contractors', db.contractors);
+      showToast('Đã xóa nhà thầu.', 'info');
+      openEhsAdminModal('CONTRACTOR');
+    }
+
+    async function addNewManagerFromEhs() {
+      const fullName = document.getElementById('new-mgr-name')?.value.trim();
+      const department = document.getElementById('new-mgr-dept')?.value.trim();
+      const username = document.getElementById('new-mgr-user')?.value.trim();
+      const password = document.getElementById('new-mgr-pass')?.value.trim();
+      if (!fullName || !department || !username || !password) { showToast('Vui lòng điền đủ thông tin.', 'warning'); return; }
+      if (db.managers.some(m => m.username.toLowerCase() === username.toLowerCase())) {
+        showToast('Tên đăng nhập đã tồn tại.', 'error');
+        return;
+      }
+      db.managers.push({ username, password, fullName, department });
+      await DB.saveSetting('managers', db.managers);
+      showToast(`Đã thêm tài khoản Quản lý ${fullName}!`, 'success');
+      openEhsAdminModal('MANAGER');
+    }
+
+    async function deleteManagerByIndex(idx) {
+      db.managers.splice(idx, 1);
+      await DB.saveSetting('managers', db.managers);
+      showToast('Đã xóa tài khoản quản lý.', 'info');
+      openEhsAdminModal('MANAGER');
+    }
+
+    // =========================================================================
+    // 15. EHS BACKUP (.ZIP) MODAL
+    // =========================================================================
+    function openEhsBackupModal() {
+      const defaultMonth = `${nowDate.getFullYear()}-${String(nowDate.getMonth() + 1).padStart(2, '0')}`;
+      document.getElementById('modal-root').innerHTML = `
+        <div class="no-print fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div class="flex items-center gap-3">
+              <div class="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-xl">
+                <i class="fa-solid fa-file-zipper"></i>
+              </div>
+              <div>
+                <h3 class="text-base font-extrabold text-navy">Sao lưu dữ liệu tháng (.ZIP)</h3>
+                <p class="text-xs text-slate-500">Tải file nén toàn bộ giấy phép trong tháng về ổ đĩa máy tính.</p>
+              </div>
+            </div>
+
+            <div class="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 leading-relaxed">
+              <strong>Lưu ý:</strong> Sau khi tải file <code>.ZIP</code> về máy, dữ liệu chi tiết (nhân sự, JSA, PPE) của các giấy phép trong tháng đó sẽ được dọn dẹp để nhẹ hệ thống, nhưng <strong>thông tin dự án vẫn được giữ lại</strong> để tra cứu.
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1.5">Chọn Tháng cần Backup</label>
+              <input type="month" id="backup-month-picker" value="${defaultMonth}" class="w-full px-4 py-2.5 rounded-xl border-2 border-slate-200 focus:border-emerald-600 text-sm font-bold text-navy outline-none" />
+            </div>
+
+            <div class="flex justify-end gap-2 pt-1">
+              <button onclick="closeModal()" class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">Đóng</button>
+              <button onclick="executeMonthlyZipBackup()" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow flex items-center gap-1.5">
+                <i class="fa-solid fa-download"></i> Tải file .ZIP &amp; Dọn dữ liệu
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function executeMonthlyZipBackup() {
+      const monthVal = document.getElementById('backup-month-picker')?.value;
+      if (!monthVal) { showToast('Vui lòng chọn tháng cần sao lưu.', 'warning'); return; }
+
+      const targets = db.permits.filter(p => (p.startDate || '').startsWith(monthVal));
+      if (targets.length === 0) {
+        showToast(`Không có giấy phép nào trong tháng ${monthVal} để sao lưu.`, 'warning');
+        return;
+      }
+
+      try {
+        const zip = new JSZip();
+        const csvHeader = '\uFEFFMa_GP,Loai_GP,Du_An,Nha_Thau,Nguoi_Quan_Ly,Bo_Phan,Ngay_Bat_Dau,Ngay_Ket_Thuc,Khu_Vuc,So_Nguoi,Trang_Thai\n';
+        const csvRows = targets.map(p => [
+          p.id,
+          getPermitTypeMeta(p.permitType).name,
+          p.projectName,
+          p.contractorName,
+          p.managerName,
+          p.department,
+          p.startDate,
+          p.endDate,
+          `${p.factory} - ${p.floor || 'Tầng 1'} - ${p.zoneName}`,
+          (p.workers || []).length,
+          p.status
+        ].map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(',')).join('\n');
+
+        zip.file(`Tong_hop_EPTW_${monthVal}.csv`, csvHeader + csvRows);
+        const detailFolder = zip.folder('Chi_tiet_Giay_phep');
+        targets.forEach(p => {
+          detailFolder.file(`${p.id}.json`, JSON.stringify(p, null, 2));
+        });
+
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `BOYD_EPTW_Backup_${monthVal}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        targets.forEach(p => {
+          p.archived = true;
+          p.ppe = [];
+          p.safetyRequirements = [];
+          p.jsa = [];
+          p.workDescription = `[Đã sao lưu vào file BOYD_EPTW_Backup_${monthVal}.zip]`;
+        });
+        await DB.upsertPermitsBatch(targets);
+        closeModal();
+        showToast(`Đã tải xuống BOYD_EPTW_Backup_${monthVal}.zip (${targets.length} giấy phép)!`, 'success');
+        renderMain();
+      } catch (err) {
+        console.error(err);
+        showToast('Lỗi tạo file ZIP sao lưu.', 'error');
+      }
+    }
+
+    // =========================================================================
+    // 16. PRINT 4 A4 SHEETS MODAL (WITH 3 RED DIAGONAL STAMPS, PPE & 5S SIGN-OFF)
+    // =========================================================================
+    function openPrintPermitModal(permitId) {
+      const p = db.permits.find(item => item.id === permitId);
+      if (!p) return;
+      const meta = getPermitTypeMeta(p.permitType);
+
+      const sheet1 = `
+        <div class="a4-sheet text-[11px] text-slate-800 justify-between">
+          <div>
+            <div class="flex items-start justify-between gap-2 border-b-2 border-navy pb-2 mb-2.5">
+              <div class="flex items-center gap-2.5">
+                ${buildBoydEatonSVG(66)}
+                <div>
+                  <div class="text-sm font-black text-navy uppercase leading-tight">GIẤY PHÉP LÀM VIỆC (E-PTW)</div>
+                  <div class="text-xs font-extrabold text-eaton uppercase">${escapeHtml(meta.name)}</div>
+                  <div class="text-[10px] text-slate-500 mt-0.5">Mã GP: <strong>${escapeHtml(p.id)}</strong> • Tờ 1/4</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0 pr-1">
+                <div class="red-stamp">
+                  <span class="text-[7px] font-bold uppercase tracking-tight">NHÀ THẦU</span>
+                  <span class="text-[8px] font-black my-0.5 leading-tight line-clamp-2">${escapeHtml(p.contractorName.slice(0, 26))}</span>
+                  <span class="text-[7px] font-extrabold border-t border-red-400 pt-0.5">ĐÃ CAM KẾT</span>
+                </div>
+                <div class="red-stamp">
+                  <span class="text-[7px] font-bold uppercase tracking-tight">BỘ PHẬN QL</span>
+                  <span class="text-[8px] font-black my-0.5 leading-tight">${escapeHtml(p.department.slice(0, 22))}</span>
+                  <span class="text-[7px] font-extrabold border-t border-red-400 pt-0.5">ĐÃ DUYỆT</span>
+                </div>
+                <div class="red-stamp">
+                  <span class="text-[7px] font-bold uppercase tracking-tight">BỘ PHẬN</span>
+                  <span class="text-[11px] font-black my-0.5">EHS</span>
+                  <span class="text-[7px] font-extrabold border-t border-red-400 pt-0.5">APPROVED</span>
+                </div>
+              </div>
+            </div>
+
+            <table class="w-full border-collapse border border-slate-400 text-[10.5px] mb-2">
+              <tr>
+                <td class="border border-slate-400 p-1 bg-slate-100 font-bold w-1/6">Đơn vị nhà thầu</td>
+                <td class="border border-slate-400 p-1 font-bold text-navy w-2/6">${escapeHtml(p.contractorName)}</td>
+                <td class="border border-slate-400 p-1 bg-slate-100 font-bold w-1/6">Phụ trách / SĐT</td>
+                <td class="border border-slate-400 p-1 w-2/6">${escapeHtml(p.contractorSupervisor)} — ${escapeHtml(p.contractorPhone)}</td>
+              </tr>
+              <tr>
+                <td class="border border-slate-400 p-1 bg-slate-100 font-bold">Bộ phận quản lý</td>
+                <td class="border border-slate-400 p-1">${escapeHtml(p.department)}</td>
+                <td class="border border-slate-400 p-1 bg-slate-100 font-bold">Người quản lý</td>
+                <td class="border border-slate-400 p-1 font-bold">${escapeHtml(p.managerName)}</td>
+              </tr>
+              <tr>
+                <td class="border border-slate-400 p-1 bg-slate-100 font-bold">Thời gian thi công</td>
+                <td class="border border-slate-400 p-1 font-bold text-eaton">${formatDateVN(p.startDate)} → ${formatDateVN(p.endDate)} (${p.startTime} - ${p.endTime})</td>
+                <td class="border border-slate-400 p-1 bg-slate-100 font-bold">Khu vực</td>
+                <td class="border border-slate-400 p-1 font-bold text-red-700">${escapeHtml(p.factory)} • ${escapeHtml(p.floor || 'Tầng 1')} — ${escapeHtml(p.zoneName)}</td>
+              </tr>
+              <tr>
+                <td class="border border-slate-400 p-1 bg-slate-100 font-bold">Tên dự án</td>
+                <td class="border border-slate-400 p-1 font-bold" colspan="3">${escapeHtml(p.projectName)}</td>
+              </tr>
+              <tr>
+                <td class="border border-slate-400 p-1 bg-slate-100 font-bold">Nội dung &amp; Vị trí</td>
+                <td class="border border-slate-400 p-1" colspan="3">${escapeHtml(p.workDescription)} — <em>Vị trí: ${escapeHtml(p.locationDetail)}</em></td>
+              </tr>
+            </table>
+
+            <div class="mb-2">
+              <div class="font-extrabold text-navy uppercase text-[10.5px] bg-slate-100 px-2 py-0.5 border border-slate-400 border-b-0">I. Yêu cầu Trang bị Bảo hộ Cá nhân (PPE) bắt buộc</div>
+              <div class="border border-slate-400 p-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                ${(p.ppe && p.ppe.length > 0) ? p.ppe.map(item => `
+                  <div class="flex items-center gap-1.5"><span class="font-bold text-eaton">☑</span> <span>${escapeHtml(item)}</span></div>
+                `).join('') : '<div class="col-span-2 italic text-slate-500">Đã lưu trữ trong hồ sơ sao lưu.</div>'}
+              </div>
+            </div>
+
+            <div class="mb-2">
+              <div class="font-extrabold text-navy uppercase text-[10.5px] bg-slate-100 px-2 py-0.5 border border-slate-400 border-b-0">II. Các Yêu cầu An toàn bắt buộc</div>
+              <div class="border border-slate-400 p-1.5 space-y-0.5 text-[10px] leading-snug">
+                ${(p.safetyRequirements && p.safetyRequirements.length > 0) ? p.safetyRequirements.map((req, idx) => `
+                  <div><strong>${idx + 1}.</strong> ${escapeHtml(req)}</div>
+                `).join('') : '<div class="italic text-slate-500">Đã lưu trữ trong hồ sơ sao lưu.</div>'}
+              </div>
+            </div>
+
+            <div class="mb-2">
+              <div class="font-extrabold text-navy uppercase text-[10.5px] bg-slate-100 px-2 py-0.5 border border-slate-400 border-b-0">III. Bảng Từng bước Công việc &amp; Đánh giá Rủi ro (JSA)</div>
+              <table class="w-full border-collapse border border-slate-400 text-[10px]">
+                <thead class="bg-slate-50">
+                  <tr>
+                    <th class="border border-slate-400 p-1 w-7">STT</th>
+                    <th class="border border-slate-400 p-1 text-left w-1/3">Bước công việc</th>
+                    <th class="border border-slate-400 p-1 text-left w-1/3">Mối nguy tiềm ẩn</th>
+                    <th class="border border-slate-400 p-1 text-left">Biện pháp kiểm soát</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${(p.jsa && p.jsa.length > 0) ? p.jsa.map((row, idx) => `
+                    <tr>
+                      <td class="border border-slate-400 p-1 text-center font-bold">${idx + 1}</td>
+                      <td class="border border-slate-400 p-1">${escapeHtml(row.step)}</td>
+                      <td class="border border-slate-400 p-1">${escapeHtml(row.hazard)}</td>
+                      <td class="border border-slate-400 p-1">${escapeHtml(row.control)}</td>
+                    </tr>
+                  `).join('') : '<tr><td colspan="4" class="border border-slate-400 p-1.5 italic text-slate-500 text-center">Đã lưu trữ trong hồ sơ sao lưu.</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="border-2 border-navy rounded p-2 bg-slate-50/70 mt-auto">
+            <div class="flex items-center justify-between border-b border-slate-300 pb-1 mb-1.5">
+              <div class="font-black text-navy uppercase text-[10.5px]">IV. Xác nhận Hoàn thành Công việc &amp; 5S Hiện trạng Khu vực Làm việc</div>
+              <div class="text-[10px] text-slate-600 font-semibold">Ngày đóng GP: ....../....../20......</div>
+            </div>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px] mb-2">
+              <div>☐ Công việc đã hoàn thành đúng hạng mục đăng ký.</div>
+              <div>☐ Khu vực đã vệ sinh 5S sạch sẽ, thu gom hết rác &amp; vật tư.</div>
+              <div>☐ Không còn nguy cơ cháy nổ / tàn lửa / rò rỉ hóa chất.</div>
+              <div>☐ Đã tháo khóa LOTO, khôi phục thiết bị về trạng thái an toàn.</div>
+            </div>
+            <div class="grid grid-cols-3 gap-2 text-center text-[10px]">
+              <div class="border border-slate-400 bg-white p-1.5 rounded">
+                <div class="font-bold text-navy">Đại diện Nhà thầu</div>
+                <div class="text-[9px] text-slate-400">(Ký, ghi rõ họ tên &amp; giờ)</div>
+                <div class="h-9"></div>
+                <div class="text-[9px] text-slate-500 border-t border-dashed border-slate-300 pt-0.5">Giờ: ....... : .......</div>
+              </div>
+              <div class="border border-slate-400 bg-white p-1.5 rounded">
+                <div class="font-bold text-navy">Người quản lý dự án</div>
+                <div class="text-[9px] text-slate-400">(Kiểm tra 5S &amp; ký xác nhận)</div>
+                <div class="h-9"></div>
+                <div class="text-[9px] text-slate-500 border-t border-dashed border-slate-300 pt-0.5">Giờ: ....... : .......</div>
+              </div>
+              <div class="border border-slate-400 bg-white p-1.5 rounded">
+                <div class="font-bold text-navy">Bộ phận EHS</div>
+                <div class="text-[9px] text-slate-400">(Xác nhận đóng giấy phép)</div>
+                <div class="h-9"></div>
+                <div class="text-[9px] text-slate-500 border-t border-dashed border-slate-300 pt-0.5">Giờ: ....... : .......</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const sheet2 = `
+        <div class="a4-sheet text-xs text-slate-800">
+          <div class="flex items-center justify-between border-b-2 border-navy pb-2.5 mb-4">
+            <div class="flex items-center gap-3">
+              ${buildBoydEatonSVG(70)}
+              <div>
+                <div class="text-base font-black text-navy uppercase">DANH SÁCH NHÂN SỰ THAM GIA THI CÔNG</div>
+                <div class="text-xs text-slate-500">Mã GP: ${escapeHtml(p.id)} • Nhà thầu: ${escapeHtml(p.contractorName)} • Tờ 2/4</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3 p-3 rounded-xl bg-slate-50 border border-slate-300 text-xs grid grid-cols-2 gap-2">
+            <div><strong>Dự án:</strong> ${escapeHtml(p.projectName)}</div>
+            <div><strong>Tổng số người đăng ký:</strong> ${p.workers.length} người</div>
+            <div><strong>Thời gian:</strong> ${formatDateVN(p.startDate)} → ${formatDateVN(p.endDate)}</div>
+            <div><strong>Khu vực:</strong> ${escapeHtml(p.factory)} • ${escapeHtml(p.floor || 'Tầng 1')} — ${escapeHtml(p.zoneName)}</div>
+          </div>
+
+          <table class="w-full border-collapse border border-slate-400 text-xs">
+            <thead class="bg-slate-100">
+              <tr>
+                <th class="border border-slate-400 p-2 w-12">STT</th>
+                <th class="border border-slate-400 p-2 text-left">Họ và tên</th>
+                <th class="border border-slate-400 p-2 w-20">Tuổi</th>
+                <th class="border border-slate-400 p-2 text-left">Số CCCD / CMND</th>
+                <th class="border border-slate-400 p-2 w-36">Ký tên xác nhận an toàn</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${p.workers.map((wk, idx) => `
+                <tr>
+                  <td class="border border-slate-400 p-2 text-center font-bold">${idx + 1}</td>
+                  <td class="border border-slate-400 p-2 font-bold">${escapeHtml(wk.name)}</td>
+                  <td class="border border-slate-400 p-2 text-center">${escapeHtml(wk.age)}</td>
+                  <td class="border border-slate-400 p-2 font-mono">${escapeHtml(wk.idCard)}</td>
+                  <td class="border border-slate-400 p-2"></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+
+      const sheet3 = `
+        <div class="a4-sheet text-xs text-slate-800">
+          <div class="flex items-center justify-between border-b-2 border-navy pb-2.5 mb-4">
+            <div class="flex items-center gap-3">
+              ${buildBoydEatonSVG(70)}
+              <div>
+                <div class="text-base font-black text-navy uppercase">BẢN CAM KẾT TUÂN THỦ AN TOÀN LAO ĐỘNG</div>
+                <div class="text-xs text-slate-500">Mã GP: ${escapeHtml(p.id)} • BOYD THERMAL by EATON • Tờ 3/4</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-3 leading-relaxed text-[13px] p-4 rounded-xl border border-slate-300 bg-slate-50/50">
+            <p><strong>Đơn vị Nhà thầu:</strong> ${escapeHtml(p.contractorName)}</p>
+            <p><strong>Người phụ trách trực tiếp:</strong> ${escapeHtml(p.contractorSupervisor)} — <strong>SĐT:</strong> ${escapeHtml(p.contractorPhone)}</p>
+            <p><strong>Hạng mục thi công:</strong> ${escapeHtml(p.projectName)}</p>
+            <hr class="border-slate-300 my-2" />
+            <p>Chúng tôi cam kết tuân thủ tuyệt đối các nội dung sau trong suốt thời gian làm việc tại nhà máy BOYD:</p>
+            <ol class="list-decimal pl-5 space-y-2">
+              <li>Chấp hành đầy đủ tất cả các yêu cầu về Trang bị bảo hộ cá nhân (PPE), quy trình đánh giá rủi ro JSA và các biện pháp an toàn đã ghi trong Giấy phép Làm việc.</li>
+              <li>Chỉ tổ chức thi công đúng phạm vi khu vực <strong>${escapeHtml(p.factory)} • ${escapeHtml(p.floor || 'Tầng 1')} — ${escapeHtml(p.zoneName)}</strong> và đúng khung giờ đã được phê duyệt.</li>
+              <li>Tất cả thiết bị, dụng cụ mang vào nhà máy đều đảm bảo tiêu chuẩn an toàn, có kiểm định hợp lệ; không tự ý đấu nối nguồn điện, khí nén hoặc vận hành thiết bị của nhà máy khi chưa được phép.</li>
+              <li>Giữ gìn vệ sinh công nghiệp 5S, thu gom rác thải đúng nơi quy định và chịu hoàn toàn trách nhiệm bồi thường nếu xảy ra sự cố gây thiệt hại về người hoặc tài sản do lỗi vi phạm an toàn của nhà thầu.</li>
+              <li>Chấp hành vô điều kiện yêu cầu tạm dừng thi công từ Người quản lý dự án hoặc Bộ phận EHS nếu phát hiện bất kỳ nguy cơ mất an toàn nào.</li>
+            </ol>
+            <div class="mt-4 p-3 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold">
+              ☑ Đã xác nhận điện tử: "Đồng ý, đã đọc rõ các yêu cầu và cam kết chấp hành các yêu cầu an toàn của công ty."
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-6 mt-10 text-center">
+            <div>
+              <div class="font-bold uppercase">Đại diện Nhà thầu cam kết</div>
+              <div class="text-[11px] text-slate-500">(Ký &amp; ghi rõ họ tên)</div>
+              <div class="h-20"></div>
+              <div class="font-bold text-navy">${escapeHtml(p.contractorSupervisor)}</div>
+            </div>
+            <div>
+              <div class="font-bold uppercase">Xác nhận Bộ phận Quản lý</div>
+              <div class="text-[11px] text-slate-500">(Ký &amp; ghi rõ họ tên)</div>
+              <div class="h-20"></div>
+              <div class="font-bold text-navy">${escapeHtml(p.managerName)}</div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const sheet4 = `
+        <div class="a4-sheet text-xs text-slate-800">
+          <div class="flex items-center justify-between border-b-2 border-navy pb-2.5 mb-4">
+            <div class="flex items-center gap-3">
+              ${buildBoydEatonSVG(70)}
+              <div>
+                <div class="text-base font-black text-navy uppercase">BẢN ĐỒ KHU VỰC LÀM VIỆC ĐƯỢC CẤP PHÉP</div>
+                <div class="text-xs text-slate-500">Mã GP: ${escapeHtml(p.id)} • Nhà máy ${escapeHtml(p.factory)} • ${escapeHtml(p.floor || 'Tầng 1')} • Tờ 4/4</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 mb-4 p-3 rounded-xl bg-slate-100 border border-slate-300 text-xs">
+            <div><strong>Nhà máy / Tầng:</strong> ${escapeHtml(p.factory)} — ${escapeHtml(p.floor || 'Tầng 1')}</div>
+            <div><strong>Khu vực đăng ký:</strong> <span class="text-red-700 font-extrabold">${escapeHtml(p.zoneId)} — ${escapeHtml(p.zoneName)}</span></div>
+            <div class="col-span-2"><strong>Vị trí cụ thể:</strong> ${escapeHtml(p.locationDetail)}</div>
+            <div class="col-span-2"><strong>Thời gian hiệu lực:</strong> ${formatDateVN(p.startDate)} → ${formatDateVN(p.endDate)} (${p.startTime} - ${p.endTime})</div>
+          </div>
+
+          <div class="my-2">
+            ${renderZoneGridMap(p.factory, p.floor || 'Tầng 1', p.zoneId, false, false)}
+          </div>
+
+          <div class="mt-4 p-3 rounded-xl border border-red-300 bg-red-50 text-xs text-red-800 font-semibold">
+            <i class="fa-solid fa-circle-exclamation mr-1"></i> Lưu ý: Ô khu vực tô màu đỏ nổi bật trên sơ đồ là phạm vi duy nhất nhà thầu được phép thi công. Nghiêm cấm đi vào các khu vực sản xuất khác không liên quan.
+          </div>
+        </div>
+      `;
+
+      document.getElementById('modal-root').innerHTML = `
+        <div id="print-modal-overlay" class="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-sm overflow-y-auto p-3 sm:p-6">
+          <div id="print-modal-container" class="max-w-[220mm] mx-auto">
+            <div class="no-print sticky top-0 z-20 mb-4 bg-navy text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between gap-3">
+              <div>
+                <div class="text-sm font-extrabold">Hồ sơ Giấy phép Làm việc — ${escapeHtml(p.id)} (Trọn bộ 4 tờ A4)</div>
+                <div class="text-[11px] text-sky-300">Tờ 1: Giấy phép (3 dấu đỏ + PPE + 5S) • Tờ 2: Nhân sự • Tờ 3: Cam kết • Tờ 4: Sơ đồ khu vực</div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="window.print()" class="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs sm:text-sm font-extrabold shadow flex items-center gap-1.5">
+                  <i class="fa-solid fa-print"></i> In cả 4 tờ A4
+                </button>
+                <button onclick="closeModal()" class="w-9 h-9 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+            </div>
+
+            ${sheet1}
+            ${sheet2}
+            ${sheet3}
+            ${sheet4}
+          </div>
+        </div>
+      `;
+    }
+
+    // =========================================================================
+    // 17. BOOTSTRAP APPLICATION (AUTO-INIT SUPABASE)
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', async () => {
+      renderAll();
+      await DB.init();
+      state.appReady = true;
+      applySafetyTemplateToWizard('GENERAL');
+      renderAll();
+    });
+  </script>
+</body>
+</html>
